@@ -16,3 +16,4 @@ local.properties
 *.keystore
 
 .kotlin/
+SHA256SUMS.txt
