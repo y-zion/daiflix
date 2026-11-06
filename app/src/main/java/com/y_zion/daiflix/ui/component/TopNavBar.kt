@@ -25,6 +25,8 @@ fun TopNavBar(
     onCategoryClick: (Category) -> Unit,
     onSearchClick: () -> Unit,
     onSettingsClick: () -> Unit,
+    onHistoryClick: () -> Unit = {},
+    onFavoritesClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val navItems = listOf(
@@ -64,7 +66,9 @@ fun TopNavBar(
             }
         }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(DaiflixSpacing.sm)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(DaiflixSpacing.xs)) {
+            NavIconButton(label = "历史", onClick = onHistoryClick)
+            NavIconButton(label = "收藏", onClick = onFavoritesClick)
             NavIconButton(label = "搜索", onClick = onSearchClick)
             NavIconButton(label = "设置", onClick = onSettingsClick)
         }

@@ -44,15 +44,6 @@
             </intent-filter>
         </activity>
 
-        <!-- Player Activity (separate task for fullscreen) -->
-        <activity
-            android:name=".PlayerActivity"
-            android:configChanges="orientation|screenSize|keyboardHidden"
-            android:exported="false"
-            android:screenOrientation="landscape"
-            android:theme="@style/Theme.Daiflix.Player"
-            android:taskAffinity=".player"
-            android:launchMode="singleTask" />
 
     </application>
 

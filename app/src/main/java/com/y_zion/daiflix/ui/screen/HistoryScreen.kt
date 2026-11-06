@@ -17,15 +17,15 @@ import com.y_zion.daiflix.data.model.VodItem
 import com.y_zion.daiflix.ui.component.VodCard
 import com.y_zion.daiflix.ui.theme.DaiflixColors
 import com.y_zion.daiflix.ui.theme.DaiflixSpacing
-import com.y_zion.daiflix.ui.viewmodel.HomeViewModel
+import com.y_zion.daiflix.ui.viewmodel.HistoryViewModel
 
 @Composable
 fun HistoryScreen(
     onVodClick: (String) -> Unit,
     onBack: () -> Unit,
-    viewModel: HomeViewModel = hiltViewModel()
+    viewModel: HistoryViewModel = hiltViewModel()
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val watchHistory by viewModel.watchHistory.collectAsState()
 
     Box(
         modifier = Modifier
@@ -60,7 +60,7 @@ fun HistoryScreen(
 
             Spacer(modifier = Modifier.height(DaiflixSpacing.lg))
 
-            if (uiState.watchHistory.isEmpty()) {
+            if (watchHistory.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
@@ -68,7 +68,7 @@ fun HistoryScreen(
                     Text("\u6682\u65e0\u89c2\u770b\u8bb0\u5f55", color = DaiflixColors.LightGray)
                 }
             } else {
-                val historyItems = uiState.watchHistory.map { history ->
+                val historyItems = watchHistory.map { history ->
                     VodItem(
                         id = history.vodId,
                         title = history.title,

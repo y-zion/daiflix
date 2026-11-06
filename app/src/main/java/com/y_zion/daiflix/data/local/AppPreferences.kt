@@ -22,7 +22,7 @@ class AppPreferences(context: Context) {
         private const val KEY_AUTO_PLAY_NEXT = "auto_play_next"
         private const val KEY_LAST_CATEGORY = "last_category"
 
-        private const val DEFAULT_BASE_URL = "https://vidhub3.top"
+        const val DEFAULT_BASE_URL = "https://vidhub3.top"
     }
 
     var baseUrl: String

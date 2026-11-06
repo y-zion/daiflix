@@ -1,5 +1,6 @@
 package com.y_zion.daiflix.ui.screen
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -9,11 +10,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.ContentScale
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
@@ -34,6 +37,20 @@ fun DetailScreen(
     viewModel: DetailViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+
+    BackHandler(onBack = onBack)
+
+    // 从播放页返回时刷新“继续播放”进度
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshWatchHistory()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     LaunchedEffect(vodId) {
         // vodId comes from navigation, ViewModel already has it via SavedStateHandle
@@ -59,7 +76,41 @@ fun DetailScreen(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(uiState.error ?: "加载失败", color = DaiflixColors.Red)
                     Spacer(modifier = Modifier.height(DaiflixSpacing.md))
-                    Text("按 OK 返回", color = DaiflixColors.LightGray)
+                    Row(horizontalArrangement = Arrangement.spacedBy(DaiflixSpacing.sm)) {
+                        Surface(
+                            onClick = { viewModel.refresh() },
+                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                            colors = ClickableSurfaceDefaults.colors(
+                                containerColor = DaiflixColors.Red,
+                                focusedContainerColor = DaiflixColors.DarkRed
+                            )
+                        ) {
+                            Text(
+                                text = "重试",
+                                color = DaiflixColors.White,
+                                modifier = Modifier.padding(
+                                    horizontal = DaiflixSpacing.lg,
+                                    vertical = DaiflixSpacing.xs
+                                )
+                            )
+                        }
+                        Surface(
+                            onClick = onBack,
+                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                            colors = ClickableSurfaceDefaults.colors(
+                                containerColor = DaiflixColors.DarkCard
+                            )
+                        ) {
+                            Text(
+                                text = "返回",
+                                color = DaiflixColors.White,
+                                modifier = Modifier.padding(
+                                    horizontal = DaiflixSpacing.lg,
+                                    vertical = DaiflixSpacing.xs
+                                )
+                            )
+                        }
+                    }
                 }
             }
         } else {
@@ -199,19 +250,32 @@ fun DetailScreen(
                             Spacer(modifier = Modifier.height(DaiflixSpacing.sm))
 
                             // 播放按钮
-                            var isFocused by remember { mutableStateOf(false) }
+                            val history = uiState.watchHistory
+                            val canResume = history != null &&
+                                history.sourceIndex == uiState.selectedSourceIndex &&
+                                history.episodeIndex == uiState.selectedEpisodeIndex &&
+                                history.position > 0
+                            val playLabel = if (canResume) {
+                                val minutes = (history!!.position / 60_000).coerceAtLeast(0)
+                                "▶  继续播放  ${minutes}分"
+                            } else {
+                                "▶  播放"
+                            }
                             Surface(
                                 onClick = {
                                     if (detail.playSources.isNotEmpty()) {
-                                        onPlayClick(vodId, 0, 0)
+                                        onPlayClick(
+                                            vodId,
+                                            uiState.selectedSourceIndex,
+                                            uiState.selectedEpisodeIndex
+                                        )
                                     }
                                 },
                                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
                                 colors = ClickableSurfaceDefaults.colors(
                                     containerColor = DaiflixColors.Red,
                                     focusedContainerColor = DaiflixColors.DarkRed
-                                ),
-                                modifier = Modifier.onFocusChanged { isFocused = it.isFocused || it.hasFocus }
+                                )
                             ) {
                                 Row(
                                     modifier = Modifier.padding(
@@ -222,7 +286,7 @@ fun DetailScreen(
                                     horizontalArrangement = Arrangement.spacedBy(DaiflixSpacing.xs)
                                 ) {
                                     Text(
-                                        text = "▶  播放",
+                                        text = playLabel,
                                         style = MaterialTheme.typography.titleMedium,
                                         color = DaiflixColors.White
                                     )
@@ -231,15 +295,13 @@ fun DetailScreen(
 
                             // 收藏按钮
                             Spacer(modifier = Modifier.height(DaiflixSpacing.xs))
-                            var favFocused by remember { mutableStateOf(false) }
                             Surface(
                                 onClick = { viewModel.toggleFavorite() },
                                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
                                 colors = ClickableSurfaceDefaults.colors(
                                     containerColor = if (uiState.isFavorite) DaiflixColors.Gold else DaiflixColors.DarkCard,
                                     focusedContainerColor = DaiflixColors.DarkSurface
-                                ),
-                                modifier = Modifier.onFocusChanged { favFocused = it.isFocused || it.hasFocus }
+                                )
                             ) {
                                 Text(
                                     text = if (uiState.isFavorite) "★ 已收藏" else "☆ 收藏",

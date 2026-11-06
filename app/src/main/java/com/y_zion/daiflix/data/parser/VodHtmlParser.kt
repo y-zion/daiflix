@@ -1,6 +1,16 @@
 package com.y_zion.daiflix.data.parser
 
 import com.y_zion.daiflix.data.model.*
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.floatOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import javax.inject.Inject
@@ -83,10 +93,14 @@ class VodHtmlParser @Inject constructor() {
     }
 
     /**
-     * 解析视频详情页
+     * 解析视频详情页。
+     *
+     * @param pageUrl 详情页的绝对 URL。Jsoup 用它作为 baseUri，
+     *                这样 doc.location() 能解析出视频 ID（旧实现传空字符串，
+     *                导致 detail.id 永远为空，历史/收藏主键全都写成 ""）。
      */
-    fun parseDetailPage(html: String): VodDetail? {
-        val doc = Jsoup.parse(html)
+    fun parseDetailPage(html: String, pageUrl: String = ""): VodDetail? {
+        val doc = Jsoup.parse(html, pageUrl)
 
         // 提取标题
         val title = doc.selectFirst("h1.page-title")?.text()?.trim() ?: return null
@@ -95,11 +109,11 @@ class VodHtmlParser @Inject constructor() {
         val coverUrl = doc.selectFirst(".video-info-item img[data-src], .video-info-item img[src]")
             ?.let { img ->
                 img.attr("data-src").ifBlank { img.attr("src") }
-            }?.trim() ?: ""
+            }?.trim()?.let { normalizeImageUrl(it) } ?: ""
 
         // 提取背景图（如果有）
         val backdropUrl = doc.selectFirst(".video-info-bg, [class*=backdrop], [class*=banner]")
-            ?.attr("style")?.let { extractUrlFromStyle(it) } ?: ""
+            ?.attr("style")?.let { extractUrlFromStyle(it) }?.let { normalizeImageUrl(it) } ?: ""
 
         // 提取元数据
         val videoInfoItems = doc.select(".video-info-items")
@@ -118,17 +132,19 @@ class VodHtmlParser @Inject constructor() {
         // 提取播放源和集数
         val playSources = parsePlaySources(doc)
 
+        val id = extractIdFromUrl(doc.location()) ?: ""
+
         // 提取相关推荐
         val relatedItems = mutableListOf<VodItem>()
         doc.select(".module-item").forEach { el ->
             val item = parseVodItemFromModule(el, Category.HOME)
-            if (item != null && item.coverUrl.isNotBlank() && item.id != extractIdFromUrl(doc.location())) {
+            if (item != null && item.coverUrl.isNotBlank() && item.id != id && item.title != title) {
                 relatedItems.add(item)
             }
         }
 
         return VodDetail(
-            id = extractIdFromUrl(doc.location()) ?: "",
+            id = id,
             title = title,
             coverUrl = coverUrl,
             backdropUrl = backdropUrl,
@@ -140,7 +156,7 @@ class VodHtmlParser @Inject constructor() {
             actors = actors,
             description = description,
             playSources = playSources,
-            relatedItems = relatedItems.take(20)
+            relatedItems = relatedItems.distinctBy { it.id }.take(20)
         )
     }
 
@@ -215,49 +231,107 @@ class VodHtmlParser @Inject constructor() {
      */
     fun parseResolveResponse(json: String): ResolvedPlayUrl? {
         return try {
-            // 简单 JSON 解析（避免引入额外依赖）
-            val urlRegex = """"url"\s*:\s*"([^"]+)"""".toRegex()
-            val typeRegex = """"type"\s*:\s*"?(\w+)"?""".toRegex()
+            val root = Json.parseToJsonElement(json).jsonObject
+            val code = root["code"]?.jsonPrimitive?.intOrNull
+            if (code != null && code != 200) return null
 
-            val url = urlRegex.find(json)?.groupValues?.get(1) ?: return null
-            val type = typeRegex.find(json)?.groupValues?.get(1) ?: "hls"
+            val url = root["url"]?.jsonPrimitive?.contentOrNull
+                ?.replace("\\/", "/")
+                ?.takeIf { it.startsWith("http") }
+                ?: return null
 
+            val type = root["type"]?.jsonPrimitive?.contentOrNull ?: ""
             val playType = when {
                 url.contains(".m3u8") || type.contains("hls", ignoreCase = true) -> PlayType.HLS
                 url.contains(".mp4") || type.contains("mp4", ignoreCase = true) -> PlayType.MP4
                 url.contains(".mpd") || type.contains("dash", ignoreCase = true) -> PlayType.DASH
                 else -> PlayType.HLS
             }
-
-            ResolvedPlayUrl(
-                url = url.replace("\\/", "/"),
-                type = playType
-            )
-        } catch (e: Exception) {
+            ResolvedPlayUrl(url = url, type = playType)
+        } catch (_: Exception) {
             null
         }
     }
 
     /**
-     * 解析弹幕 JSON
+     * 解析 /ajax/suggest 的 JSON，作为搜索结果。
+     * 响应形如 {"total":2,"list":[{"id":269371,"name":"...","pic":"..."}]}
+     */
+    fun parseSuggestResponse(json: String): List<VodItem> {
+        return try {
+            val root = Json.parseToJsonElement(json).jsonObject
+            val list = root["list"]?.jsonArray ?: return emptyList()
+            list.mapNotNull { element ->
+                val obj = element.jsonObject
+                val id = obj["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                val name = obj["name"]?.jsonPrimitive?.contentOrNull
+                    ?.trim()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                val pic = obj["pic"]?.jsonPrimitive?.contentOrNull ?: ""
+                VodItem(
+                    id = id,
+                    title = name,
+                    coverUrl = normalizeImageUrl(pic),
+                    category = Category.HOME,
+                    year = obj["year"]?.jsonPrimitive?.contentOrNull ?: ""
+                )
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    /**
+     * 解析弹幕 JSON。
+     * 站点返回 {"code":23,"danum":0,"danmuku":[{"time":1.2,"type":0,"color":16777215,"text":"..."}]}，
+     * 部分历史数据是 [time,type,color,text] 数组，两种都兼容。
      */
     fun parseDanmakuResponse(json: String): List<Danmaku> {
-        val danmakuList = mutableListOf<Danmaku>()
+        val result = mutableListOf<Danmaku>()
         try {
-            // 弹幕格式: [[time, type, color, text], ...] 或 {data: [...]}
-            val arrayRegex = """\[\s*(\d+\.?\d*)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*"([^"]*)"\s*]""".toRegex()
+            val root = Json.parseToJsonElement(json).jsonObject
+            val array = root["danmuku"] as? JsonArray ?: root["data"] as? JsonArray
+            array?.forEach { element ->
+                when (element) {
+                    is JsonObject -> {
+                        val text = element["text"]?.jsonPrimitive?.contentOrNull ?: return@forEach
+                        val time = element["time"]?.jsonPrimitive?.contentOrNull
+                            ?.toFloatOrNull() ?: 0f
+                        val type = element["type"]?.jsonPrimitive?.intOrNull ?: 0
+                        val color = parseColor(element["color"]?.jsonPrimitive?.contentOrNull)
+                        result.add(Danmaku(text = text, time = time, color = color, type = type))
+                    }
+
+                    is JsonArray -> {
+                        if (element.size >= 4) {
+                            val time = element[0].jsonPrimitive.contentOrNull?.toFloatOrNull() ?: 0f
+                            val type = element[1].jsonPrimitive.intOrNull ?: 0
+                            val color = parseColor(element[2].jsonPrimitive.contentOrNull)
+                            val text = element[3].jsonPrimitive.contentOrNull ?: ""
+                            if (text.isNotBlank()) {
+                                result.add(Danmaku(text = text, time = time, color = color, type = type))
+                            }
+                        }
+                    }
+
+                    else -> Unit
+                }
+            }
+        } catch (_: Exception) {
+            // 回退到旧的正则解析
+            val arrayRegex =
+                """\[\s*(\d+\.?\d*)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*"([^"]*)"\s*]""".toRegex()
             arrayRegex.findAll(json).forEach { match ->
-                danmakuList.add(
+                result.add(
                     Danmaku(
-                        time = match.groupValues[1].toFloat(),
-                        type = match.groupValues[2].toInt(),
+                        time = match.groupValues[1].toFloatOrNull() ?: 0f,
+                        type = match.groupValues[2].toIntOrNull() ?: 0,
                         color = match.groupValues[3].toIntOrNull() ?: 0xFFFFFF,
                         text = match.groupValues[4]
                     )
                 )
             }
-        } catch (_: Exception) {}
-        return danmakuList
+        }
+        return result
     }
 
     // ---- 私有辅助方法 ----
@@ -278,6 +352,7 @@ class VodHtmlParser @Inject constructor() {
                         img.attr("data-src").ifBlank { img.attr("src") }
                     } ?: ""
                 }
+                .let { normalizeImageUrl(it) }
 
             if (title.isNotBlank() && coverUrl.isNotBlank()) {
                 banners.add(
@@ -305,7 +380,7 @@ class VodHtmlParser @Inject constructor() {
 
         val coverUrl = el.selectFirst("img")?.let { img ->
             img.attr("data-src").ifBlank { img.attr("data-original") }.ifBlank { img.attr("src") }
-        }?.trim() ?: ""
+        }?.trim()?.let { normalizeImageUrl(it) } ?: ""
 
         val year = el.selectFirst(".module-item-caption span:first-child")?.text()?.trim() ?: ""
         val categoryText = el.selectFirst(".module-item-caption .video-class")?.text()?.trim() ?: ""
@@ -339,23 +414,23 @@ class VodHtmlParser @Inject constructor() {
         if (sourceTabs.isNotEmpty()) {
             sourceTabs.forEachIndexed { index, tab ->
                 val name = tab.text().trim().ifBlank { "播放源${index + 1}" }
-                val episodes = mutableListOf<Episode>()
-
-                // 查找对应的集数列表
                 val listContainer = sourceLists.getOrNull(index)
-                listContainer?.select(".sort-item a, .module-blocklist a")?.forEachIndexed { epIndex, epLink ->
-                    val epName = epLink.text().trim().ifBlank { "第${epIndex + 1}集" }
-                    val epUrl = epLink.attr("href")
-                    val epId = extractEpisodeId(epUrl)
 
-                    episodes.add(
+                val episodes = listContainer
+                    ?.select(".sort-item a[href*=vodplay], .module-blocklist a[href*=vodplay]")
+                    ?.mapIndexedNotNull { epIndex, epLink ->
+                        val epUrl = epLink.attr("href")
+                        if (epUrl.isBlank()) return@mapIndexedNotNull null
+                        val epName = epLink.text().trim().ifBlank { "第${epIndex + 1}集" }
+                        val epId = extractEpisodeId(epUrl)
                         Episode(
                             index = epId?.third ?: (epIndex + 1),
                             name = epName,
                             playUrl = epUrl
                         )
-                    )
-                }
+                    }
+                    ?.distinctBy { it.playUrl }
+                    ?: emptyList()
 
                 if (episodes.isNotEmpty()) {
                     sources.add(PlaySource(name = name, episodes = episodes))
@@ -363,20 +438,19 @@ class VodHtmlParser @Inject constructor() {
             }
         } else {
             // 没有多源，尝试直接提取播放列表
-            val episodes = mutableListOf<Episode>()
-            doc.select(".module-list a[href*=vodplay], .sort-list a[href*=vodplay]").forEachIndexed { index, link ->
-                val name = link.text().trim().ifBlank { "第${index + 1}集" }
-                val url = link.attr("href")
-                val epId = extractEpisodeId(url)
-
-                episodes.add(
+            val episodes = doc.select(".module-list a[href*=vodplay], .sort-list a[href*=vodplay]")
+                .mapIndexedNotNull { index, link ->
+                    val url = link.attr("href")
+                    if (url.isBlank()) return@mapIndexedNotNull null
+                    val name = link.text().trim().ifBlank { "第${index + 1}集" }
+                    val epId = extractEpisodeId(url)
                     Episode(
                         index = epId?.third ?: (index + 1),
                         name = name,
                         playUrl = url
                     )
-                )
-            }
+                }
+                .distinctBy { it.playUrl }
             if (episodes.isNotEmpty()) {
                 sources.add(PlaySource(name = "默认", episodes = episodes))
             }
@@ -396,6 +470,30 @@ class VodHtmlParser @Inject constructor() {
             }
         }
         return ""
+    }
+
+    /**
+     * 图片地址规范化：
+     * - 处理协议相对地址（//img1.doubanio.com/...）
+     * - 反转义 JSON 中的 \\/
+     * Douban 图片需要 Referer: https://movie.douban.com/，由 Coil 的图片客户端补上。
+     */
+    private fun normalizeImageUrl(raw: String): String {
+        val url = raw.trim().replace("\\/", "/")
+        return when {
+            url.startsWith("//") -> "https:$url"
+            else -> url
+        }
+    }
+
+    private fun parseColor(raw: String?): Int {
+        val value = raw?.trim().orEmpty()
+        if (value.isEmpty()) return 0xFFFFFF
+        return if (value.startsWith("#")) {
+            value.removePrefix("#").toLongOrNull(16)?.toInt() ?: 0xFFFFFF
+        } else {
+            value.toLongOrNull()?.toInt() ?: 0xFFFFFF
+        }
     }
 
     private fun extractIdFromUrl(url: String): String? {

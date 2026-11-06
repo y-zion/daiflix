@@ -10,6 +10,7 @@ import javax.inject.Inject
 
 data class SettingsUiState(
     val baseUrl: String = "",
+    val baseUrlError: String? = null,
     val danmakuEnabled: Boolean = true,
     val danmakuOpacity: Float = 0.8f,
     val danmakuSize: Float = 1.0f,
@@ -38,9 +39,31 @@ class SettingsViewModel @Inject constructor(
         )
     }
 
-    fun setBaseUrl(url: String) {
-        preferences.baseUrl = url
-        _uiState.value = _uiState.value.copy(baseUrl = url)
+    fun saveBaseUrl(url: String) {
+        val normalized = url.trim().trimEnd('/')
+        val error = when {
+            normalized.isBlank() -> "地址不能为空"
+            !normalized.startsWith("http://") && !normalized.startsWith("https://") ->
+                "地址必须以 http:// 或 https:// 开头"
+            normalized.contains(' ') -> "地址不能包含空格"
+            runCatching { java.net.URI(normalized).host }.getOrNull().isNullOrBlank() ->
+                "地址格式不正确"
+            else -> null
+        }
+        if (error != null) {
+            _uiState.value = _uiState.value.copy(baseUrlError = error)
+            return
+        }
+        preferences.baseUrl = normalized
+        _uiState.value = _uiState.value.copy(baseUrl = normalized, baseUrlError = null)
+    }
+
+    fun resetBaseUrl() {
+        preferences.baseUrl = AppPreferences.DEFAULT_BASE_URL
+        _uiState.value = _uiState.value.copy(
+            baseUrl = AppPreferences.DEFAULT_BASE_URL,
+            baseUrlError = null
+        )
     }
 
     fun setDanmakuEnabled(enabled: Boolean) {

@@ -19,23 +19,23 @@ interface VidHubApi {
     suspend fun getHomePage(): String
 
     /**
-     * 分类列表
-     * @param categoryId 分类 ID: 1=电影, 2=连续剧, 3=综艺, 4=动漫
-     * @param page 页码
+     * 分类列表。站点本身只提供第一页（/vodtype/1.html），
+     * 没有可靠的第二页，因此不再伪造 page 查询参数。
      */
     @GET("/vodtype/{categoryId}.html")
     suspend fun getCategoryPage(
-        @Path("categoryId") categoryId: String,
-        @Query("page") page: Int = 1
+        @Path("categoryId") categoryId: String
     ): String
 
     /**
-     * 搜索
-     * @param keyword 搜索关键词
+     * 搜索建议接口。网页搜索页 /vodsearch/... 被人机验证拦截，
+     * 但 /ajax/suggest 返回 JSON，可直接作为搜索结果使用。
      */
-    @GET("/vodsearch/{keyword}------------.html")
-    suspend fun search(
-        @Path("keyword") keyword: String
+    @GET("/ajax/suggest")
+    suspend fun suggest(
+        @Query("wd") keyword: String,
+        @Query("mid") mid: Int = 1,
+        @Query("limit") limit: Int = 30
     ): String
 
     /**
@@ -59,7 +59,8 @@ interface VidHubApi {
     ): String
 
     /**
-     * 播放器 iframe 页面（包含实际视频 URL）
+     * 播放器 iframe 页面。正常情况下播放地址由 /player/api/resolve.php 解析，
+     * 此接口用于兼容 config 中直接带 url 的少量页面。
      */
     @GET
     suspend fun getPlayerPage(

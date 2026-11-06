@@ -68,10 +68,66 @@ fun SettingsScreen(
                 verticalArrangement = Arrangement.spacedBy(DaiflixSpacing.md)
             ) {
                 SettingsSection(title = "\u6570\u636e\u6e90") {
+                    var draftUrl by remember(uiState.baseUrl) { mutableStateOf(uiState.baseUrl) }
                     SettingsTextField(
                         label = "VidHub \u5730\u5740",
-                        value = uiState.baseUrl,
-                        onValueChange = { viewModel.setBaseUrl(it) }
+                        value = draftUrl,
+                        onValueChange = { draftUrl = it }
+                    )
+                    if (uiState.baseUrlError != null) {
+                        Text(
+                            text = uiState.baseUrlError ?: "",
+                            color = DaiflixColors.Red,
+                            style = androidx.tv.material3.MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(top = DaiflixSpacing.xxs)
+                        )
+                    }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(DaiflixSpacing.sm),
+                        modifier = Modifier.padding(top = DaiflixSpacing.xs)
+                    ) {
+                        Surface(
+                            onClick = { viewModel.saveBaseUrl(draftUrl) },
+                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                            colors = ClickableSurfaceDefaults.colors(
+                                containerColor = DaiflixColors.Red,
+                                focusedContainerColor = DaiflixColors.DarkRed
+                            )
+                        ) {
+                            Text(
+                                text = "\u4fdd\u5b58\u5730\u5740",
+                                color = DaiflixColors.White,
+                                modifier = Modifier.padding(
+                                    horizontal = DaiflixSpacing.md,
+                                    vertical = DaiflixSpacing.xs
+                                )
+                            )
+                        }
+                        Surface(
+                            onClick = {
+                                viewModel.resetBaseUrl()
+                                draftUrl = viewModel.uiState.value.baseUrl
+                            },
+                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                            colors = ClickableSurfaceDefaults.colors(
+                                containerColor = DaiflixColors.DarkCard
+                            )
+                        ) {
+                            Text(
+                                text = "\u6062\u590d\u9ed8\u8ba4",
+                                color = DaiflixColors.White,
+                                modifier = Modifier.padding(
+                                    horizontal = DaiflixSpacing.md,
+                                    vertical = DaiflixSpacing.xs
+                                )
+                            )
+                        }
+                    }
+                    Text(
+                        text = "\u63d0\u793a\uff1a\u90e8\u5206\u7535\u89c6\u53ef\u7528\u7cfb\u7edf\u8f93\u5165\u6cd5\u7f16\u8f91\u5730\u5740",
+                        color = DaiflixColors.MediumGray,
+                        style = androidx.tv.material3.MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = DaiflixSpacing.xxs)
                     )
                 }
 

@@ -8,16 +8,12 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.*
@@ -26,6 +22,10 @@ import com.y_zion.daiflix.ui.theme.DaiflixColors
 import com.y_zion.daiflix.ui.theme.DaiflixSpacing
 import com.y_zion.daiflix.ui.viewmodel.SearchViewModel
 
+/**
+ * TV 搜索页：遥控器没有实体键盘，使用屏幕软键盘输入。
+ * 站点 /ajax/suggest 同时支持中文与拼音（如 liulang），因此软键盘只提供字母数字。
+ */
 @Composable
 fun SearchScreen(
     onVodClick: (String) -> Unit,
@@ -33,9 +33,9 @@ fun SearchScreen(
     viewModel: SearchViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val focusRequester = remember { FocusRequester() }
+    val firstKeyFocus = remember { FocusRequester() }
 
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    LaunchedEffect(Unit) { firstKeyFocus.requestFocus() }
 
     Box(
         modifier = Modifier
@@ -62,32 +62,58 @@ fun SearchScreen(
                     }
                 }
 
-                OutlinedTextField(
-                    value = uiState.query,
-                    onValueChange = { viewModel.updateQuery(it) },
-                    placeholder = {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    colors = SurfaceDefaults.colors(containerColor = DaiflixColors.DarkCard),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp)
+                            .padding(horizontal = DaiflixSpacing.md),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
                         Text(
-                            "\u641c\u7d22\u7535\u5f71\u3001\u7535\u89c6\u5267\u3001\u52a8\u6f2b...",
-                            color = DaiflixColors.MediumGray
+                            text = uiState.query.ifBlank { "输入片名或拼音，例如 liulang" },
+                            color = if (uiState.query.isBlank()) DaiflixColors.MediumGray else DaiflixColors.White,
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
-                    },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { viewModel.search() }),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = DaiflixColors.White,
-                        unfocusedBorderColor = DaiflixColors.DarkGray,
-                        cursorColor = DaiflixColors.White,
-                        focusedTextColor = DaiflixColors.White,
-                        unfocusedTextColor = DaiflixColors.White
-                    ),
-                    modifier = Modifier
-                        .weight(1f)
-                        .focusRequester(focusRequester)
-                )
+                    }
+                }
+
+                Surface(
+                    onClick = { viewModel.search() },
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = DaiflixColors.Red,
+                        focusedContainerColor = DaiflixColors.DarkRed
+                    )
+                ) {
+                    Text(
+                        text = "搜索",
+                        color = DaiflixColors.White,
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.padding(horizontal = DaiflixSpacing.lg, vertical = DaiflixSpacing.xs)
+                    )
+                }
             }
 
-            Spacer(modifier = Modifier.height(DaiflixSpacing.lg))
+            Spacer(modifier = Modifier.height(DaiflixSpacing.sm))
+
+            OnScreenKeyboard(
+                firstKeyFocus = firstKeyFocus,
+                onKey = { viewModel.updateQuery(uiState.query + it) },
+                onBackspace = {
+                    viewModel.updateQuery(uiState.query.dropLast(1))
+                },
+                onClear = { viewModel.updateQuery("") },
+                onSearch = { viewModel.search() }
+            )
+
+            Spacer(modifier = Modifier.height(DaiflixSpacing.md))
 
             when {
                 uiState.isSearching -> {
@@ -183,6 +209,81 @@ fun SearchScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun OnScreenKeyboard(
+    firstKeyFocus: FocusRequester,
+    onKey: (String) -> Unit,
+    onBackspace: () -> Unit,
+    onClear: () -> Unit,
+    onSearch: () -> Unit
+) {
+    val rows = listOf(
+        "1234567890",
+        "qwertyuiop",
+        "asdfghjkl",
+        "zxcvbnm"
+    )
+
+    Column(
+        verticalArrangement = Arrangement.spacedBy(DaiflixSpacing.xxs),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        rows.forEachIndexed { rowIndex, row ->
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(DaiflixSpacing.xxs),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                row.forEachIndexed { index, ch ->
+                    val keyModifier = if (rowIndex == 0 && index == 0) {
+                        Modifier.width(52.dp).focusRequester(firstKeyFocus)
+                    } else {
+                        Modifier.width(52.dp)
+                    }
+                    KeyboardKey(
+                        label = ch.toString(),
+                        onClick = { onKey(ch.toString()) },
+                        modifier = keyModifier
+                    )
+                }
+            }
+        }
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(DaiflixSpacing.xs),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            KeyboardKey(label = "空格", onClick = { onKey(" ") }, modifier = Modifier.weight(1f))
+            KeyboardKey(label = "\u232b 删除", onClick = onBackspace, modifier = Modifier.weight(1f))
+            KeyboardKey(label = "清空", onClick = onClear, modifier = Modifier.weight(1f))
+            KeyboardKey(label = "搜索", onClick = onSearch, modifier = Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun KeyboardKey(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        onClick = onClick,
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = DaiflixColors.DarkCard,
+            focusedContainerColor = DaiflixColors.DarkSurface
+        ),
+        modifier = modifier.height(42.dp)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                color = DaiflixColors.White
+            )
         }
     }
 }

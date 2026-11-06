@@ -3,6 +3,7 @@ package com.y_zion.daiflix.di
 import android.content.Context
 import androidx.room.Room
 import com.y_zion.daiflix.data.local.AppDatabase
+import com.y_zion.daiflix.data.local.MIGRATION_1_2
 import com.y_zion.daiflix.data.local.VodDao
 import dagger.Module
 import dagger.Provides
@@ -23,7 +24,7 @@ object DatabaseModule {
             AppDatabase::class.java,
             "daiflix.db"
         )
-            .fallbackToDestructiveMigration()
+            .addMigrations(MIGRATION_1_2)
             .build()
     }
 

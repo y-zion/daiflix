@@ -54,16 +54,17 @@ class SearchViewModel @Inject constructor(
         searchJob = viewModelScope.launch {
             _uiState.update { it.copy(query = keyword, isSearching = true, error = null) }
 
-            // 保存搜索历史
-            repository.saveSearchHistory(keyword)
-
-            // 防抖
+            // 防抖：连续输入时只保留最后一次请求
             delay(300)
 
             repository.search(keyword)
                 .onSuccess { results ->
                     _uiState.update {
                         it.copy(isSearching = false, results = results)
+                    }
+                    // 只有真正搜到结果才写入历史，避免把无效关键词也存下来
+                    if (results.isNotEmpty()) {
+                        repository.saveSearchHistory(keyword)
                     }
                 }
                 .onFailure { e ->

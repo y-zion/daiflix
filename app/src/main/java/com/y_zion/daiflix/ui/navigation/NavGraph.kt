@@ -36,6 +36,9 @@ fun DaiflixNavGraph(
                 },
                 onHistoryClick = {
                     navController.navigate(Screen.History)
+                },
+                onFavoritesClick = {
+                    navController.navigate(Screen.Favorites)
                 }
             )
         }
@@ -47,6 +50,15 @@ fun DaiflixNavGraph(
                 onVodClick = { vodId ->
                     navController.navigate(Screen.Detail(vodId))
                 },
+                onCategoryChange = { newCategoryId ->
+                    navController.navigate(Screen.Category(newCategoryId)) {
+                        popUpTo<Screen.Category> { inclusive = true }
+                    }
+                },
+                onSearchClick = { navController.navigate(Screen.Search) },
+                onSettingsClick = { navController.navigate(Screen.Settings) },
+                onHistoryClick = { navController.navigate(Screen.History) },
+                onFavoritesClick = { navController.navigate(Screen.Favorites) },
                 onBack = { navController.popBackStack() }
             )
         }

@@ -5,10 +5,14 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.y_zion.daiflix.data.model.Category
 import com.y_zion.daiflix.ui.component.TopNavBar
@@ -21,6 +25,11 @@ import com.y_zion.daiflix.ui.viewmodel.CategoryViewModel
 fun CategoryScreen(
     categoryId: String,
     onVodClick: (String) -> Unit,
+    onCategoryChange: (String) -> Unit,
+    onSearchClick: () -> Unit,
+    onSettingsClick: () -> Unit,
+    onHistoryClick: () -> Unit,
+    onFavoritesClick: () -> Unit,
     onBack: () -> Unit,
     viewModel: CategoryViewModel = hiltViewModel()
 ) {
@@ -38,13 +47,15 @@ fun CategoryScreen(
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             TopNavBar(
-                selectedCategory = category,
+                selectedCategory = uiState.category,
                 onCategoryClick = { cat ->
                     if (cat == Category.HOME) onBack()
-                    else viewModel.loadCategory(cat)
+                    else if (cat != uiState.category) onCategoryChange(cat.value)
                 },
-                onSearchClick = {},
-                onSettingsClick = {}
+                onSearchClick = onSearchClick,
+                onSettingsClick = onSettingsClick,
+                onHistoryClick = onHistoryClick,
+                onFavoritesClick = onFavoritesClick
             )
 
             when {
@@ -55,7 +66,45 @@ fun CategoryScreen(
                 }
                 uiState.error != null && uiState.items.isEmpty() -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
-                        Text(uiState.error ?: "加载失败", color = DaiflixColors.Red)
+                        Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+                            Text(uiState.error ?: "加载失败", color = DaiflixColors.Red)
+                            Spacer(modifier = Modifier.height(DaiflixSpacing.md))
+                            Row(horizontalArrangement = Arrangement.spacedBy(DaiflixSpacing.sm)) {
+                                Surface(
+                                    onClick = { viewModel.loadCategory(category) },
+                                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                                    colors = ClickableSurfaceDefaults.colors(
+                                        containerColor = DaiflixColors.Red,
+                                        focusedContainerColor = DaiflixColors.DarkRed
+                                    )
+                                ) {
+                                    Text(
+                                        text = "重试",
+                                        color = DaiflixColors.White,
+                                        modifier = Modifier.padding(
+                                            horizontal = DaiflixSpacing.lg,
+                                            vertical = DaiflixSpacing.xs
+                                        )
+                                    )
+                                }
+                                Surface(
+                                    onClick = onBack,
+                                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                                    colors = ClickableSurfaceDefaults.colors(
+                                        containerColor = DaiflixColors.DarkCard
+                                    )
+                                ) {
+                                    Text(
+                                        text = "返回首页",
+                                        color = DaiflixColors.White,
+                                        modifier = Modifier.padding(
+                                            horizontal = DaiflixSpacing.lg,
+                                            vertical = DaiflixSpacing.xs
+                                        )
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
                 else -> {

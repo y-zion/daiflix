@@ -111,7 +111,8 @@ data class WatchHistory(
     val vodId: String,
     val title: String,
     val coverUrl: String,
-    val episodeIndex: Int,
+    val episodeIndex: Int,       // 0-based index inside the selected source
+    val sourceIndex: Int = 0,    // 0-based index into VodDetail.playSources
     val position: Long = 0,     // 播放进度（毫秒）
     val duration: Long = 0,     // 总时长（毫秒）
     val timestamp: Long = System.currentTimeMillis()

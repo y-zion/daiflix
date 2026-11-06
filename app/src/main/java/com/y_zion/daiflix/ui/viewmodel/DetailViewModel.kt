@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.y_zion.daiflix.data.model.VodDetail
+import com.y_zion.daiflix.data.model.WatchHistory
 import com.y_zion.daiflix.data.model.VodItem
 import com.y_zion.daiflix.data.repository.VodRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -17,6 +18,7 @@ data class DetailUiState(
     val isFavorite: Boolean = false,
     val selectedSourceIndex: Int = 0,
     val selectedEpisodeIndex: Int = 0,
+    val watchHistory: WatchHistory? = null,
     val error: String? = null
 )
 
@@ -43,8 +45,23 @@ class DetailViewModel @Inject constructor(
             _uiState.update { it.copy(isLoading = true, error = null) }
             repository.getDetail(vodId)
                 .onSuccess { detail ->
+                    val history = repository.getWatchHistory(vodId)
+                    val sourceIndex = history?.sourceIndex
+                        ?.coerceIn(0, (detail.playSources.size - 1).coerceAtLeast(0))
+                        ?: 0
+                    val episodeCount = detail.playSources.getOrNull(sourceIndex)
+                        ?.episodes?.size ?: 0
+                    val episodeIndex = history?.episodeIndex
+                        ?.coerceIn(0, (episodeCount - 1).coerceAtLeast(0))
+                        ?: 0
                     _uiState.update {
-                        it.copy(isLoading = false, detail = detail)
+                        it.copy(
+                            isLoading = false,
+                            detail = detail,
+                            selectedSourceIndex = sourceIndex,
+                            selectedEpisodeIndex = episodeIndex,
+                            watchHistory = history
+                        )
                     }
                 }
                 .onFailure { e ->
@@ -77,6 +94,30 @@ class DetailViewModel @Inject constructor(
 
     fun selectEpisode(index: Int) {
         _uiState.update { it.copy(selectedEpisodeIndex = index) }
+    }
+
+    /**
+     * 从播放页返回详情页时刷新续播信息。
+     */
+    fun refreshWatchHistory() {
+        viewModelScope.launch {
+            val detail = _uiState.value.detail ?: return@launch
+            val history = repository.getWatchHistory(vodId)
+            val sourceIndex = history?.sourceIndex
+                ?.coerceIn(0, (detail.playSources.size - 1).coerceAtLeast(0))
+                ?: _uiState.value.selectedSourceIndex
+            val episodeCount = detail.playSources.getOrNull(sourceIndex)?.episodes?.size ?: 0
+            val episodeIndex = history?.episodeIndex
+                ?.coerceIn(0, (episodeCount - 1).coerceAtLeast(0))
+                ?: _uiState.value.selectedEpisodeIndex
+            _uiState.update {
+                it.copy(
+                    watchHistory = history,
+                    selectedSourceIndex = sourceIndex,
+                    selectedEpisodeIndex = episodeIndex
+                )
+            }
+        }
     }
 
     fun refresh() {

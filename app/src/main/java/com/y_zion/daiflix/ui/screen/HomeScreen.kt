@@ -4,12 +4,16 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.y_zion.daiflix.data.model.Category
 import com.y_zion.daiflix.data.model.VodItem
@@ -25,6 +29,7 @@ fun HomeScreen(
     onSearchClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onHistoryClick: () -> Unit,
+    onFavoritesClick: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -42,7 +47,9 @@ fun HomeScreen(
                     else onCategoryClick(category.value)
                 },
                 onSearchClick = onSearchClick,
-                onSettingsClick = onSettingsClick
+                onSettingsClick = onSettingsClick,
+                onHistoryClick = onHistoryClick,
+                onFavoritesClick = onFavoritesClick
             )
 
             when {
@@ -56,7 +63,23 @@ fun HomeScreen(
                         Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
                             Text(uiState.error ?: "加载失败", color = DaiflixColors.Red)
                             Spacer(modifier = Modifier.height(DaiflixSpacing.md))
-                            Text("按 OK 重试", color = DaiflixColors.LightGray)
+                            Surface(
+                                onClick = { viewModel.refresh() },
+                                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                                colors = ClickableSurfaceDefaults.colors(
+                                    containerColor = DaiflixColors.Red,
+                                    focusedContainerColor = DaiflixColors.DarkRed
+                                )
+                            ) {
+                                Text(
+                                    text = "重试",
+                                    color = DaiflixColors.White,
+                                    modifier = Modifier.padding(
+                                        horizontal = DaiflixSpacing.lg,
+                                        vertical = DaiflixSpacing.xs
+                                    )
+                                )
+                            }
                         }
                     }
                 }

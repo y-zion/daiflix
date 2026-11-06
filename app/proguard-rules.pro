@@ -44,7 +44,6 @@
     kotlinx.serialization.KSerializer serializer(...);
 }
 -if @kotlinx.serialization.Serializable class **
-keepclassmembers class <1> {
-    static <2> INSTANCE;
-    static *** $serializer();
+-keepclassmembers class <1> {
+    static <1>$Companion Companion;
 }

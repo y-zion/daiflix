@@ -15,19 +15,38 @@ android {
         applicationId = "com.y_zion.daiflix"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
-
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        versionCode = 2
+        versionName = "1.1.0"
 
         // TV required feature
         manifestPlaceholders["leanbackRequired"] = "true"
+    }
+
+    // Release signing is opt-in: CI/local builds without credentials still compile,
+    // but a release APK is only signed when all four env vars are present.
+    val keystoreFile = System.getenv("DAIFLIX_KEYSTORE_FILE")
+    val keystorePassword = System.getenv("DAIFLIX_KEYSTORE_PASSWORD")
+    val keyAlias = System.getenv("DAIFLIX_KEY_ALIAS")
+    val keyPassword = System.getenv("DAIFLIX_KEY_PASSWORD")
+    val hasReleaseSigning = listOf(keystoreFile, keystorePassword, keyAlias, keyPassword)
+        .all { !it.isNullOrBlank() }
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(keystoreFile!!)
+                storePassword = keystorePassword
+                this.keyAlias = keyAlias
+                this.keyPassword = keyPassword
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            signingConfig = signingConfigs.findByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -51,6 +70,21 @@ android {
     buildFeatures {
         compose = true
     }
+
+    lint {
+        // These detector versions are incompatible with AGP 8.7's Kotlin UAST API.
+        disable += listOf(
+            "NullSafeMutableLiveData",
+            "RememberInComposition",
+            "FrequentlyChangingValue",
+            "AutoboxingStateCreation"
+        )
+    }
+}
+
+ksp {
+    // Keep generated Room schemas in version control so migrations are reviewable.
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {
@@ -107,5 +141,8 @@ dependencies {
     implementation(libs.media3.ui)
 
     // Leanback
-    implementation(libs.androidx.leanback)
+
+    // Unit tests
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
 }

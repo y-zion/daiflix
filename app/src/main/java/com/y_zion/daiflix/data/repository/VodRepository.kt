@@ -7,8 +7,13 @@ import com.y_zion.daiflix.data.local.AppPreferences
 import com.y_zion.daiflix.data.local.VodDao
 import com.y_zion.daiflix.data.model.*
 import com.y_zion.daiflix.data.parser.VodHtmlParser
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import java.net.URLDecoder
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -24,27 +29,51 @@ class VodRepository @Inject constructor(
 
     // ---- 网络请求 ----
 
+    /**
+     * 应用级写入作用域：播放器退出时 ViewModel 可能已被清理，
+     * 用这个作用域保证最后一次进度一定落库。
+     */
+    private val persistScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private val currentBaseUrl: String
+        get() = preferences.baseUrl.trimEnd('/')
+
+    @Volatile
+    private var cachedDetail: VodDetail? = null
+
     suspend fun getHomePage(): Result<com.y_zion.daiflix.data.parser.HomePageData> = runCatching {
         val html = vidHubApi.getHomePage()
         parser.parseHomePage(html)
     }
 
-    suspend fun getCategory(category: Category, page: Int): Result<com.y_zion.daiflix.data.parser.CategoryData> = runCatching {
+    suspend fun getCategory(category: Category): Result<com.y_zion.daiflix.data.parser.CategoryData> = runCatching {
         val html = vidHubApi.getCategoryPage(
-            categoryId = VidHubApi.getCategoryPath(category),
-            page = page
+            categoryId = VidHubApi.getCategoryPath(category)
         )
         parser.parseCategoryPage(html, category)
     }
 
+    /**
+     * 网页搜索被“人机验证”拦截，改用站点的 suggest JSON 接口。
+     */
     suspend fun search(keyword: String): Result<List<VodItem>> = runCatching {
-        val html = vidHubApi.search(keyword = keyword)
-        parser.parseSearchPage(html)
+        val json = vidHubApi.suggest(keyword = keyword)
+        parser.parseSuggestResponse(json)
     }
 
-    suspend fun getDetail(id: String): Result<VodDetail> = runCatching {
-        val html = vidHubApi.getDetail(id = id)
-        parser.parseDetailPage(html) ?: throw Exception("无法解析详情页")
+    suspend fun getDetail(id: String): Result<VodDetail> {
+        val cached = cachedDetail
+        if (cached != null && cached.id == id) {
+            return Result.success(cached)
+        }
+        return runCatching {
+            val html = vidHubApi.getDetail(id = id)
+            val pageUrl = "$currentBaseUrl/voddetail/$id.html"
+            val detail = parser.parseDetailPage(html, pageUrl)
+                ?: throw Exception("无法解析详情页")
+            // 即使页面里的 canonical URL 缺失，也保证详情 ID 来自路由。
+            detail.copy(id = detail.id.ifBlank { id }).also { cachedDetail = it }
+        }
     }
 
     suspend fun resolvePlayUrl(url: String): Result<ResolvedPlayUrl> = runCatching {
@@ -57,25 +86,34 @@ class VodRepository @Inject constructor(
         val sourceId = match.groupValues[2].toIntOrNull() ?: 1
         val episodeId = match.groupValues[3].toIntOrNull() ?: 1
 
-        // 第一步：获取播放页 HTML，提取 iframe URL
+        // 第一步：获取播放页 HTML，提取播放器 iframe URL
         val playHtml = vidHubApi.getPlayPage(id = id, sourceId = sourceId, episodeId = episodeId)
         val iframeUrl = parser.parsePlayPageForIframe(playHtml)
             ?: throw Exception("未找到播放器 iframe")
 
-        // 拼接完整 iframe URL
-        val fullIframeUrl = if (iframeUrl.startsWith("http")) {
-            iframeUrl
+        // 第二步：优先走 /player/api/resolve.php?u={encrypted}。
+        // 旧逻辑去 iframe 页面里找 config.url，但站点现在把 url 留空，
+        // 真实地址由 player 的 JS 调用 resolve 接口获得。
+        val resolveToken = queryParameter(iframeUrl, "u")
+        if (!resolveToken.isNullOrBlank()) {
+            val json = resolveApi.resolve(encryptedUrl = resolveToken)
+            parser.parseResolveResponse(json)
+                ?: throw Exception("播放地址解析失败")
         } else {
-            "https://vidhub3.top$iframeUrl"
+            // 少数页面直接在 config 中给出 url，保留兜底路径。
+            val fullIframeUrl = if (iframeUrl.startsWith("http")) {
+                iframeUrl
+            } else {
+                "$currentBaseUrl$iframeUrl"
+            }
+            val playerHtml = vidHubApi.getPlayerPage(url = fullIframeUrl)
+            parser.parsePlayerPage(playerHtml)
+                ?: throw Exception("无法从播放器页面提取视频地址")
         }
-
-        // 第二步：获取 iframe 页面 HTML，提取实际视频 URL
-        val playerHtml = vidHubApi.getPlayerPage(url = fullIframeUrl)
-        parser.parsePlayerPage(playerHtml) ?: throw Exception("无法从播放器页面提取视频地址")
     }
 
     suspend fun getDanmaku(vid: String): Result<List<Danmaku>> = runCatching {
-        val json = danmakuApi.getDanmaku(vid = vid)
+        val json = danmakuApi.getDanmaku(id = vid)
         parser.parseDanmakuResponse(json)
     }
 
@@ -86,8 +124,15 @@ class VodRepository @Inject constructor(
             entities.map { it.toModel() }
         }
 
+    suspend fun getWatchHistory(vodId: String): WatchHistory? =
+        dao.getWatchHistoryById(vodId)?.toModel()
+
     suspend fun saveWatchHistory(history: WatchHistory) {
         dao.insertWatchHistory(history.toEntity())
+    }
+
+    fun saveWatchHistoryNow(history: WatchHistory) {
+        persistScope.launch { saveWatchHistory(history) }
     }
 
     suspend fun deleteWatchHistory(vodId: String) {
@@ -158,6 +203,24 @@ class VodRepository @Inject constructor(
     fun setDanmakuEnabled(enabled: Boolean) {
         preferences.danmakuEnabled = enabled
     }
+
+    fun getPlaybackSpeed(): Float = preferences.playbackSpeed
+
+    fun isAutoPlayNext(): Boolean = preferences.autoPlayNext
+
+    fun getDanmakuOpacity(): Float = preferences.danmakuOpacity
+
+    fun getDanmakuSize(): Float = preferences.danmakuSize
+
+    private fun queryParameter(url: String, name: String): String? {
+        val query = url.substringAfter('?', missingDelimiterValue = "")
+        if (query.isBlank()) return null
+        return query.split('&').firstOrNull { part ->
+            part.substringBefore('=') == name
+        }?.substringAfter('=', missingDelimiterValue = "")?.let {
+            runCatching { URLDecoder.decode(it, "UTF-8") }.getOrNull()
+        }
+    }
 }
 
 // ---- 扩展函数 ----
@@ -167,6 +230,7 @@ private fun WatchHistoryEntity.toModel() = WatchHistory(
     title = title,
     coverUrl = coverUrl,
     episodeIndex = episodeIndex,
+    sourceIndex = sourceIndex,
     position = position,
     duration = duration,
     timestamp = timestamp
@@ -177,6 +241,7 @@ private fun WatchHistory.toEntity() = WatchHistoryEntity(
     title = title,
     coverUrl = coverUrl,
     episodeIndex = episodeIndex,
+    sourceIndex = sourceIndex,
     position = position,
     duration = duration,
     timestamp = timestamp

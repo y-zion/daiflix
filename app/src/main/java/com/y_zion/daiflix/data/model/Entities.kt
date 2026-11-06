@@ -1,5 +1,6 @@
 package com.y_zion.daiflix.data.model
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -10,6 +11,8 @@ data class WatchHistoryEntity(
     val title: String,
     val coverUrl: String,
     val episodeIndex: Int,
+    @ColumnInfo(defaultValue = "0")
+    val sourceIndex: Int = 0,
     val position: Long = 0,
     val duration: Long = 0,
     val timestamp: Long = System.currentTimeMillis()
