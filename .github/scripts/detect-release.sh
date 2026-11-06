@@ -6,7 +6,7 @@
 #   versionName = "2.1.0"
 #
 # 发布规则：
-#   * 推送到 main / 手动触发（workflow_dispatch）：
+#   * 推送到 master / 手动触发（workflow_dispatch）：
 #       - versionName 严格高于当前最高 v* tag，且 versionCode 比该 tag 时更大 -> 发布
 #       - versionName 等于最高 tag 但 Release 缺失（上次失败重试）-> 发布
 #       - 否则跳过

@@ -1,7 +1,7 @@
 name: Release
 
 # 自动发布：
-#   推送到 main 后，如果 app/build.gradle.kts 里的 versionName 高于最新 v* tag，
+#   推送到 master 后，如果 app/build.gradle.kts 里的 versionName 高于最新 v* tag，
 #   自动跑单测 → 构建签名 APK → 校验签名 → 打 vX.Y.Z tag → 发布 GitHub Release。
 #   版本号没变（或更低）时只跑检测，不会重复发布。
 # 手动发布：
@@ -9,7 +9,7 @@ name: Release
 #   vX.Y.Z tag。
 on:
   push:
-    branches: [main]
+    branches: [master]
     tags: ['v*']
   workflow_dispatch:
 
