@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- "D" letter for Daiflix -->
+    <path
+        android:fillColor="#E50914"
+        android:pathData="M34,30 L34,78 L54,78 C66,78 74,68 74,54 C74,40 66,30 54,30 Z M42,38 L52,38 C60,38 66,44 66,54 C66,64 60,70 52,70 L42,70 Z"/>
+</vector>

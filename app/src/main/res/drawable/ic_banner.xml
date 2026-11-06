@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180">
+    <!-- Background -->
+    <path
+        android:fillColor="#0D0D0D"
+        android:pathData="M0,0h320v180h-320z"/>
+    <!-- "DAIFLIX" text -->
+    <path
+        android:fillColor="#E50914"
+        android:pathData="M60,70 L60,110 L75,110 C85,110 92,103 92,90 C92,77 85,70 75,70 Z M68,77 L74,77 C80,77 84,82 84,90 C84,98 80,103 74,103 L68,103 Z"/>
+    <path
+        android:fillColor="#E50914"
+        android:pathData="M100,70 L108,70 L116,85 L124,70 L132,70 L120,93 L132,110 L124,110 L116,95 L108,110 L100,110 L112,93 Z"/>
+    <path
+        android:fillColor="#E50914"
+        android:pathData="M140,70 L148,70 L148,103 L164,103 L164,110 L140,110 Z"/>
+    <path
+        android:fillColor="#E50914"
+        android:pathData="M172,70 L180,70 L180,103 L196,103 L196,110 L172,110 Z"/>
+    <path
+        android:fillColor="#E50914"
+        android:pathData="M204,70 L212,70 L212,110 L204,110 Z"/>
+    <path
+        android:fillColor="#E50914"
+        android:pathData="M220,70 L228,70 L228,87 L244,87 L244,70 L252,70 L252,110 L244,110 L244,94 L228,94 L228,110 L220,110 Z"/>
+</vector>
