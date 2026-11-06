@@ -8,18 +8,19 @@ plugins {
 }
 
 android {
-    namespace = "com.y_zion.daiflix"
+    namespace = "com.yzion.daiflix.tv"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.y_zion.daiflix"
+        applicationId = "com.yzion.daiflix.tv"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "2.0.0"
 
         // TV required feature
         manifestPlaceholders["leanbackRequired"] = "true"
+        resValue("bool", "daiflix_is_debug", "false")
     }
 
     // Release signing is opt-in: CI/local builds without credentials still compile,
@@ -55,6 +56,9 @@ android {
         debug {
             isMinifyEnabled = false
             applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+            resValue("string", "app_name", "Daiflix Debug")
+            resValue("bool", "daiflix_is_debug", "true")
         }
     }
 

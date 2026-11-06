@@ -3,7 +3,7 @@
 # proguardFiles setting in build.gradle.kts.
 
 # Keep data classes
--keep class com.y_zion.daiflix.data.model.** { *; }
+-keep class com.yzion.daiflix.tv.data.model.** { *; }
 
 # Keep Retrofit interfaces
 -keep,allowobfuscation,allowshrinking interface * {
