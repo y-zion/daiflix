@@ -86,7 +86,19 @@ export DAIFLIX_KEY_PASSWORD=...
 ./gradlew :app:assembleRelease
 ```
 
-GitHub Actions 的 `Release` 工作流在推送 `v*` tag 时使用同名 Secrets（`DAIFLIX_KEYSTORE_BASE64` / `DAIFLIX_KEYSTORE_PASSWORD` / `DAIFLIX_KEY_ALIAS` / `DAIFLIX_KEY_PASSWORD`）构建签名包并上传到 Release。R8 已开启（minify + shrinkResources），发版前请安装 release 包做一次完整回归。
+GitHub Actions 的 `Release` 工作流使用同名 Secrets（`DAIFLIX_KEYSTORE_BASE64` / `DAIFLIX_KEYSTORE_PASSWORD` / `DAIFLIX_KEY_ALIAS` / `DAIFLIX_KEY_PASSWORD`）签名。R8 已开启（minify + shrinkResources），发版前请安装 release 包做一次完整回归。
+
+### 自动发版
+
+推送到 `main` 时 `Release` 工作流会自动检查版本号：只要 `app/build.gradle.kts` 里的 `versionName` 高于最新 `v*` tag，就自动跑单测、构建并校验签名、打 `vX.Y.Z` tag、发布 GitHub Release（资产 `Daiflix-vX.Y.Z.apk` 与 `SHA256SUMS.txt`）。版本号没变或更低时只跑检测，不会重复发布。
+
+发版步骤：
+
+1. 修改 `app/build.gradle.kts`：`versionName` 改成新版本（如 `"2.1.0"`），`versionCode` 必须同步严格递增（如 `4`），否则工作流会报错并终止。
+2. 在 `CHANGELOG.md` 顶部新增 `## [2.1.0] — YYYY-MM-DD` 小节，其内容会作为 Release 说明。
+3. 提交并推送到 `main`，等 `Release` 工作流跑完即可。
+
+也可以手动触发：在 Actions 页面运行 `Release` 工作流（用于按当前版本重试发布），或推送与 `versionName` 一致的 `vX.Y.Z` tag。
 
 ## 数据源与配置
 

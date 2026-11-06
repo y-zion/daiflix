@@ -3,6 +3,12 @@
 All notable changes to Daiflix are documented here. This project follows
 [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`).
 
+## [Unreleased]
+
+### 工程
+
+- `Release` 工作流改为「版本号递增即自动发版」：推送到 `main` 后检测 `versionName`，高于最新 `v*` tag 时自动跑单测、构建签名 APK、打 tag 并发布 GitHub Release（详见 README「自动发版」）
+
 ## [2.0.0] — 2026-11-06
 
 首次以 **Daiflix** 品牌开源发布。

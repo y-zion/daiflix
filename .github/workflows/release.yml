@@ -1,17 +1,72 @@
 name: Release
 
+# 自动发布：
+#   推送到 main 后，如果 app/build.gradle.kts 里的 versionName 高于最新 v* tag，
+#   自动跑单测 → 构建签名 APK → 校验签名 → 打 vX.Y.Z tag → 发布 GitHub Release。
+#   版本号没变（或更低）时只跑检测，不会重复发布。
+# 手动发布：
+#   Actions 页面手动运行本工作流（workflow_dispatch），或推送与 versionName 一致的
+#   vX.Y.Z tag。
 on:
   push:
+    branches: [main]
     tags: ['v*']
   workflow_dispatch:
 
+# 发布会创建 tag 和 Release，两个并发运行会抢同一个 tag，因此串行执行。
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  detect:
+    name: Detect version bump
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      should_release: ${{ steps.detect.outputs.should_release }}
+      version: ${{ steps.detect.outputs.version }}
+      version_code: ${{ steps.detect.outputs.version_code }}
+      reason: ${{ steps.detect.outputs.reason }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # 需要 tag 与完整历史：用于和最新发版 tag 比较 versionName / versionCode
+          fetch-depth: 0
+
+      - name: Decide whether to release
+        id: detect
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/detect-release.sh
+
+      - name: Report decision
+        run: |
+          {
+            echo "### 发布检测"
+            echo "- 版本号：\`${{ steps.detect.outputs.version }}\`（versionCode \`${{ steps.detect.outputs.version_code }}\`）"
+            echo "- 是否发布：\`${{ steps.detect.outputs.should_release }}\`"
+            echo "- 原因：${{ steps.detect.outputs.reason }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   release:
+    name: Build and publish
+    needs: detect
+    if: needs.detect.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      VERSION: ${{ needs.detect.outputs.version }}
+      VERSION_CODE: ${{ needs.detect.outputs.version_code }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # 完整历史 + tag：确认 tag 是否已存在
+          fetch-depth: 0
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -24,6 +79,9 @@ jobs:
 
       - name: Make gradlew executable
         run: chmod +x gradlew
+
+      - name: Unit tests
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
 
       - name: Decode keystore
         env:
@@ -45,29 +103,81 @@ jobs:
 
       - name: Verify signature
         run: |
-          APK=$(ls app/build/outputs/apk/release/*.apk | head -n 1)
+          APK=$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -n 1)
-          "$APKSIGNER" verify --verbose "$APK"
+          "$APKSIGNER" verify --verbose --print-certs "$APK"
+          # 未配置签名 Secret 时 assembleRelease 产出 unsigned 包，必须拦住
+          "$APKSIGNER" verify "$APK" >/dev/null 2>&1 || {
+            echo "::error::release APK is not signed; check the DAIFLIX_* signing secrets" >&2
+            exit 1
+          }
 
       - name: Rename and checksum
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          APK=$(ls app/build/outputs/apk/release/*.apk | head -n 1)
+          APK=$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)
           cp "$APK" "Daiflix-v${VERSION}.apk"
           shasum -a 256 "Daiflix-v${VERSION}.apk" > SHA256SUMS.txt
+          cat SHA256SUMS.txt
 
-      - name: Upload artifact
+      - name: Prepare release notes
+        run: |
+          # 优先取 CHANGELOG.md 中当前版本的小节，缺失时退回一段占位说明
+          awk -v version="$VERSION" '
+            index($0, "## [" version "]") == 1 { found = 1; next }
+            found && index($0, "## [") == 1 { exit }
+            found { print }
+          ' CHANGELOG.md > RELEASE_NOTES.md || true
+
+          if ! grep -q '[^[:space:]]' RELEASE_NOTES.md; then
+            printf 'Daiflix v%s\n\n该版本未在 CHANGELOG.md 中登记。\n' "$VERSION" > RELEASE_NOTES.md
+          fi
+
+          {
+            echo
+            echo '---'
+            echo
+            echo '## 安装'
+            echo
+            echo '```bash'
+            echo "adb install Daiflix-v${VERSION}.apk"
+            echo '```'
+            echo
+            echo "> 需要 Android 8.0+（API 26），内部版本号 \`${VERSION_CODE}\`。校验值见 \`SHA256SUMS.txt\`。"
+          } >> RELEASE_NOTES.md
+
+          echo "----- release notes -----"
+          cat RELEASE_NOTES.md
+
+      - name: Create Git tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git rev-parse -q --verify "refs/tags/v${VERSION}" >/dev/null; then
+            echo "tag v${VERSION} already exists"
+          else
+            git tag -a "v${VERSION}" -m "Daiflix ${VERSION}"
+            git push origin "v${VERSION}"
+          fi
+
+      - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: daiflix-release
           path: |
             Daiflix-v*.apk
             SHA256SUMS.txt
+          if-no-files-found: error
 
-      - name: Attach to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            Daiflix-v*.apk
-            SHA256SUMS.txt
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "v${VERSION}" >/dev/null 2>&1; then
+            echo "release v${VERSION} already exists; refreshing assets"
+            gh release upload "v${VERSION}" "Daiflix-v${VERSION}.apk" SHA256SUMS.txt --clobber
+          else
+            gh release create "v${VERSION}" "Daiflix-v${VERSION}.apk" SHA256SUMS.txt \
+              --title "Daiflix ${VERSION}" \
+              --notes-file RELEASE_NOTES.md
+          fi
+          echo "- Release: https://github.com/${GITHUB_REPOSITORY}/releases/tag/v${VERSION}" >> "$GITHUB_STEP_SUMMARY"
