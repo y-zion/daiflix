@@ -5,6 +5,8 @@ All notable changes to Daiflix are documented here. This project follows
 
 ## [Unreleased]
 
+## [2.1.0] — 2026-11-07
+
 ### 新增
 
 - 播放时保持屏幕常亮：播放路由挂载 `KeepScreenOn`（`View.keepScreenOn` 即 `FLAG_KEEP_SCREEN_ON`，无需 WakeLock），退出播放自动恢复，其他页面仍可正常休眠
