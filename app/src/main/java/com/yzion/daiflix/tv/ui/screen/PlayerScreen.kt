@@ -111,6 +111,9 @@ fun PlayerScreen(
     var seekFeedback by remember { mutableStateOf<String?>(null) }
     var seekFeedbackTick by remember { mutableIntStateOf(0) }
     var interactionTick by remember { mutableIntStateOf(0) }
+    // 暂停时用户不希望底部菜单一直停在「播放/暂停」上：暂停态先隐藏选中圈，
+    // 按方向键或恢复播放后再显示（2026-11-07 反馈）。
+    var selectionVisible by remember { mutableStateOf(true) }
     // Hold-to-accelerate seek gesture state (audit P3-1).
     var seekStepIndex by remember { mutableIntStateOf(0) }
     var lastSeekDirection by remember { mutableIntStateOf(0) }
@@ -263,6 +266,14 @@ fun PlayerScreen(
         // The error screen keeps its own focus handling for every other key.
         if (uiState.error != null) return false
 
+        // Any D-pad move re-reveals the control selection ring (paused HUD starts without it).
+        if (
+            event.key == Key.DirectionUp || event.key == Key.DirectionDown ||
+            event.key == Key.DirectionLeft || event.key == Key.DirectionRight
+        ) {
+            selectionVisible = true
+        }
+
         when (event.key) {
             Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
                 if (hudVisible) {
@@ -331,6 +342,11 @@ fun PlayerScreen(
             delay(80)
             runCatching { rootFocus.requestFocus() }
         }
+    }
+
+    // Paused: hide the control selection ring; playing: show it again.
+    LaunchedEffect(uiState.isPlaying) {
+        selectionVisible = uiState.isPlaying
     }
 
     // Auto-hide the HUD after 4 seconds of inactivity while playing.
@@ -425,6 +441,7 @@ fun PlayerScreen(
                     danmakuCount = uiState.danmakuList.size,
                     hasNext = uiState.hasNext,
                     selected = selectedControl,
+                    selectionVisible = selectionVisible,
                     onControlClick = { control ->
                         selectedControl = control
                         activateControl(control)

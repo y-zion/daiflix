@@ -3,8 +3,6 @@ package com.yzion.daiflix.tv.ui.component
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -209,17 +207,16 @@ fun HeroSection(
                     }
                 }
             ) {
-                HeroActionRing {
-                    DaiflixPrimaryButton(
-                        text = "播放",
-                        onClick = { onPlayClick(current.id) },
-                        icon = Icons.Rounded.PlayArrow,
-                        modifier = (if (playFocusRequester != null) {
-                            Modifier.focusRequester(playFocusRequester)
-                        } else {
-                            Modifier
-                        }).onFocusChanged { onPlayFocusChange?.invoke(it.hasFocus) }
-                            .onPreviewKeyEvent { event ->
+                DaiflixPrimaryButton(
+                    text = "播放",
+                    onClick = { onPlayClick(current.id) },
+                    icon = Icons.Rounded.PlayArrow,
+                    modifier = (if (playFocusRequester != null) {
+                        Modifier.focusRequester(playFocusRequester)
+                    } else {
+                        Modifier
+                    }).onFocusChanged { onPlayFocusChange?.invoke(it.hasFocus) }
+                        .onPreviewKeyEvent { event ->
                             if (onNavigateUp != null &&
                                 event.type == KeyEventType.KeyDown &&
                                 event.key == Key.DirectionUp
@@ -230,15 +227,12 @@ fun HeroSection(
                                 false
                             }
                         }
-                    )
-                }
-                HeroActionRing {
-                    DaiflixSecondaryButton(
-                        text = "详情",
-                        onClick = { onVodClick(current.id) },
-                        icon = Icons.Rounded.Info
-                    )
-                }
+                )
+                DaiflixSecondaryButton(
+                    text = "详情",
+                    onClick = { onVodClick(current.id) },
+                    icon = Icons.Rounded.Info
+                )
             }
         }
 
@@ -315,28 +309,6 @@ private fun HeroSeparatorDot() {
             .clip(RoundedCornerShape(50))
             .background(DaiflixColors.MediumGray)
     )
-}
-
-@Composable
-private fun HeroActionRing(content: @Composable () -> Unit) {
-    var focused by remember { mutableStateOf(false) }
-    Box(
-        modifier = Modifier
-            .onFocusChanged { focused = it.hasFocus }
-            .then(
-                if (focused) {
-                    Modifier.border(
-                        border = BorderStroke(2.dp, DaiflixColors.White),
-                        shape = RoundedCornerShape(8.dp)
-                    )
-                } else {
-                    Modifier
-                }
-            )
-            .padding(DaiflixSpacing.xs)
-    ) {
-        content()
-    }
 }
 
 /** Only badge a hero label when it really describes episodes, not a region caption. */

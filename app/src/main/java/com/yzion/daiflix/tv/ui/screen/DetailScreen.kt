@@ -28,6 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -170,17 +171,17 @@ private fun DetailContent(
     var descriptionExpanded by remember(detail.id, detail.description) { mutableStateOf(false) }
     var descriptionOverflows by remember(detail.id, detail.description) { mutableStateOf(false) }
 
-    // Enter the page pinned to the top. Focus now lands on the hero back button
-    // (below) instead of the in-body play button; the old LaunchedEffect that
-    // grabbed the play button made verticalScroll auto-scroll the hero partly
-    // off-screen right on entry (audit P1-5).
+    // Enter the page pinned to the top with focus on the primary action (播放) instead of
+    // the hero back button (user feedback 2026-11-07). The play button sits lower in the
+    // hero, so requesting its focus fires verticalScroll's bringIntoView (audit P1-5);
+    // scroll is re-pinned to the top right after the focus settles, so the hero is never
+    // left partly scrolled off-screen on entry.
     LaunchedEffect(detail.id) {
         runCatching { scrollState.scrollTo(0) }
+        runCatching { playFocusRequester.requestFocus() }
+        withFrameNanos { }
+        runCatching { scrollState.scrollTo(0) }
     }
-
-    // First-frame focus on the back button, which is visible at scroll 0, so
-    // requesting it never scrolls the container.
-    RequestFocusWhenReady(backFocusRequester, key = detail.id)
 
     val backdrop = detail.backdropUrl.ifBlank { detail.coverUrl }
 

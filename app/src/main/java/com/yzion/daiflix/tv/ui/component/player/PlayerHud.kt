@@ -127,7 +127,7 @@ fun PlayerTopBar(
                     contentColor = DaiflixColors.White
                 )
             ) {
-                Box(contentAlignment = Alignment.Center) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = Icons.Rounded.ArrowBack,
                         contentDescription = "返回",
@@ -184,6 +184,9 @@ fun PlayerBottomBar(
     danmakuCount: Int,
     hasNext: Boolean,
     selected: PlayerControl,
+    // Paused 时用户不想让底部菜单一直停在「播放/暂停」上，所以暂停态先隐藏选中圈，
+    // 只有用户按了方向键（或恢复播放）后才显示（2026-11-07 反馈）。
+    selectionVisible: Boolean = true,
     onControlClick: (PlayerControl) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -234,6 +237,7 @@ fun PlayerBottomBar(
                 selected = selected == PlayerControl.REWIND,
                 icon = Icons.Rounded.FastRewind,
                 label = "快退10s",
+                highlight = selectionVisible,
                 onClick = { onControlClick(PlayerControl.REWIND) }
             )
             PlayerControlButton(
@@ -241,12 +245,14 @@ fun PlayerBottomBar(
                 icon = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                 label = if (isPlaying) "暂停" else "播放",
                 primary = true,
+                highlight = selectionVisible,
                 onClick = { onControlClick(PlayerControl.PLAY) }
             )
             PlayerControlButton(
                 selected = selected == PlayerControl.FORWARD,
                 icon = Icons.Rounded.FastForward,
                 label = "快进10s",
+                highlight = selectionVisible,
                 onClick = { onControlClick(PlayerControl.FORWARD) }
             )
             PlayerControlButton(
@@ -254,18 +260,21 @@ fun PlayerBottomBar(
                 icon = Icons.Rounded.SkipNext,
                 label = "下一集",
                 enabled = hasNext,
+                highlight = selectionVisible,
                 onClick = { onControlClick(PlayerControl.NEXT) }
             )
             PlayerControlButton(
                 selected = selected == PlayerControl.EPISODES,
                 icon = Icons.Rounded.PlaylistPlay,
                 label = "选集",
+                highlight = selectionVisible,
                 onClick = { onControlClick(PlayerControl.EPISODES) }
             )
             PlayerControlButton(
                 selected = selected == PlayerControl.SOURCES,
                 icon = Icons.Rounded.SwapHoriz,
                 label = "换源",
+                highlight = selectionVisible,
                 onClick = { onControlClick(PlayerControl.SOURCES) }
             )
             PlayerControlButton(
@@ -278,12 +287,14 @@ fun PlayerBottomBar(
                     danmakuCount > 0 -> "弹幕 $danmakuCount"
                     else -> "暂无弹幕"
                 },
+                highlight = selectionVisible,
                 onClick = { onControlClick(PlayerControl.DANMAKU) }
             )
             PlayerControlButton(
                 selected = selected == PlayerControl.SPEED,
                 icon = Icons.Rounded.Speed,
                 label = playerSpeedLabel(speed),
+                highlight = selectionVisible,
                 onClick = { onControlClick(PlayerControl.SPEED) }
             )
         }
@@ -297,14 +308,18 @@ private fun PlayerControlButton(
     label: String,
     onClick: () -> Unit,
     primary: Boolean = false,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    highlight: Boolean = true
 ) {
     // Explicit disabled branch (audit P3-2): tv-material's default disabled look was
     // almost the same as "unfocused but available". Disabled content is dimmed to ~28%
     // alpha, gets no selection ring/scale and cannot be focused; the available unfocused
     // state keeps the current opaque light-grey label.
+    //
+    // `highlight = false` 时保持同尺寸但不画选中圈/不放大（暂停态默认不强调任何控件）。
+    val active = selected && enabled && highlight
     val scale by animateFloatAsState(
-        targetValue = if (selected && enabled) 1.08f else 1f,
+        targetValue = if (active) 1.08f else 1f,
         animationSpec = tween(durationMillis = 120),
         label = "playerControlScale"
     )
@@ -320,7 +335,7 @@ private fun PlayerControlButton(
                 .size(buttonSize + 10.dp)
                 .border(
                     width = 2.dp,
-                    color = if (selected && enabled) DaiflixColors.White else Color.Transparent,
+                    color = if (active) DaiflixColors.White else Color.Transparent,
                     shape = CircleShape
                 ),
             contentAlignment = Alignment.Center
@@ -344,7 +359,7 @@ private fun PlayerControlButton(
                 ),
                 scale = ClickableSurfaceDefaults.scale(focusedScale = 1f)
             ) {
-                Box(contentAlignment = Alignment.Center) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = icon,
                         contentDescription = label,
@@ -358,7 +373,7 @@ private fun PlayerControlButton(
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            color = if (selected && enabled) DaiflixColors.White else DaiflixColors.LightGray,
+            color = if (active) DaiflixColors.White else DaiflixColors.LightGray,
             textAlign = TextAlign.Center,
             maxLines = 1
         )

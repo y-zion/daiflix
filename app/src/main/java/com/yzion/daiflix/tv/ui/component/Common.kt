@@ -56,10 +56,10 @@ fun focusBorder(color: Color = DaiflixColors.FocusRing): Border =
     Border(BorderStroke(2.dp, color))
 
 /**
- * Netflix "Play" button: solid white, black label, grows on focus.
+ * Netflix "Play" button: solid white, black label.
  *
- * 白底按钮在白字焦点环下无法区分，所以使用画在组件外沿的 [focusHalo]
- * （白圈 + 3dp 暗色间隙），焦点态一眼可见（审计 P1-1）。
+ * 焦点态 = 品牌红底白字 + 1.06 放大，不再画组件外的白色焦点环
+ * （2026-11-07 反馈：白圈看着像 bug，只要放大/变色即可）。
  */
 @Composable
 fun DaiflixPrimaryButton(
@@ -75,13 +75,11 @@ fun DaiflixPrimaryButton(
         colors = ClickableSurfaceDefaults.colors(
             containerColor = DaiflixColors.White,
             contentColor = DaiflixColors.Black,
-            focusedContainerColor = DaiflixColors.White,
-            focusedContentColor = DaiflixColors.Black
+            focusedContainerColor = DaiflixColors.Red,
+            focusedContentColor = DaiflixColors.White
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
-        modifier = modifier
-            .trackFocus(focus)
-            .focusHalo(focus, cornerRadius = 8.dp)
+        modifier = modifier.trackFocus(focus)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 28.dp, vertical = 14.dp),
@@ -93,13 +91,13 @@ fun DaiflixPrimaryButton(
                     imageVector = icon,
                     contentDescription = null,
                     modifier = Modifier.size(26.dp),
-                    tint = DaiflixColors.Black
+                    tint = if (focus.isFocused) DaiflixColors.White else DaiflixColors.Black
                 )
             }
             Text(
                 text = text,
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                color = DaiflixColors.Black
+                color = if (focus.isFocused) DaiflixColors.White else DaiflixColors.Black
             )
         }
     }
@@ -124,9 +122,7 @@ fun DaiflixSecondaryButton(
             focusedContentColor = DaiflixColors.Black
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
-        modifier = modifier
-            .trackFocus(focus)
-            .focusHalo(focus, cornerRadius = 8.dp)
+        modifier = modifier.trackFocus(focus)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 24.dp, vertical = 14.dp),
@@ -151,8 +147,8 @@ fun DaiflixSecondaryButton(
 }
 
 /**
- * Destructive action button (审计 P1-7)：红描边 + 红字，焦点时红底白字 + 白色焦点环。
- * 与主按钮的白底形成明确的危险/普通语义区分。
+ * Destructive action button (审计 P1-7)：红描边 + 红字，焦点时红底白字。
+ * 与主按钮的白底形成明确的危险/普通语义区分；不使用外沿焦点环。
  */
 @Composable
 fun DaiflixDangerButton(
@@ -173,12 +169,10 @@ fun DaiflixDangerButton(
         ),
         border = ClickableSurfaceDefaults.border(
             border = Border(BorderStroke(2.dp, DaiflixColors.Red)),
-            focusedBorder = Border(BorderStroke(2.dp, DaiflixColors.FocusRing))
+            focusedBorder = Border.None
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
-        modifier = modifier
-            .trackFocus(focus)
-            .focusHalo(focus, cornerRadius = 8.dp)
+        modifier = modifier.trackFocus(focus)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 24.dp, vertical = 14.dp),
@@ -223,8 +217,7 @@ fun DaiflixBackButton(
             .then(
                 if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier
             )
-            .trackFocus(focus)
-            .focusHalo(focus, cornerRadius = 24.dp),
+            .trackFocus(focus),
         shape = ClickableSurfaceDefaults.shape(CircleShape),
         // Colors are driven by focus.isFocused (not the tv-material interaction source), so the
         // focused white disc renders on the very first frame (audit P1-3).
