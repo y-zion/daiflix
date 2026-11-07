@@ -14,17 +14,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -50,12 +46,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.yzion.daiflix.tv.data.model.VodItem
+import com.yzion.daiflix.tv.ui.component.DaiflixBackButton
 import com.yzion.daiflix.tv.ui.component.EmptyState
 import com.yzion.daiflix.tv.ui.component.LoadingState
 import com.yzion.daiflix.tv.ui.component.RequestFocusWhenReady
@@ -123,6 +119,8 @@ fun SearchScreen(
     val firstKeyFocusRequester = remember { FocusRequester() }
     val keyboardBottomFocusRequester = remember { FocusRequester() }
     val firstResultFocusRequester = remember { FocusRequester() }
+    // 返回钮只持有 requester（供将来回焦使用），首屏焦点仍由 q 键抢。
+    val backFocusRequester = remember { FocusRequester() }
 
     // 首屏焦点：键盘第一行第一个键（q）。
     RequestFocusWhenReady(firstKeyFocusRequester)
@@ -149,7 +147,11 @@ fun SearchScreen(
             .background(DaiflixColors.Background)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            SearchHeader(query = state.query, onBack = onBack)
+            SearchHeader(
+                query = state.query,
+                onBack = onBack,
+                backFocusRequester = backFocusRequester
+            )
 
             Row(
                 modifier = Modifier
@@ -207,9 +209,11 @@ fun SearchScreen(
                         }
 
                         else -> {
+                            // P3-5：不再重复输入框里的占位文案「输入片名开始搜索」。
+                            // 短句 + EmptyState 默认换行，1080p 下左栏（约 456dp 宽）完整可见。
                             EmptyState(
-                                title = "输入片名开始搜索",
-                                message = "支持中文片名与拼音输入，例如 liulang"
+                                title = "还没有搜索结果",
+                                message = "输入关键词后按「搜索」"
                             )
                         }
                     }
@@ -272,10 +276,9 @@ fun SearchScreen(
 @Composable
 private fun SearchHeader(
     query: String,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    backFocusRequester: FocusRequester
 ) {
-    val backFocus = rememberFocusState()
-
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -287,44 +290,11 @@ private fun SearchHeader(
             ),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Surface(
-            onClick = onBack,
-            modifier = Modifier
-                .size(48.dp)
-                .trackFocus(backFocus)
-                .focusHalo(backFocus, cornerRadius = 24.dp),
-            shape = ClickableSurfaceDefaults.shape(CircleShape),
-            colors = ClickableSurfaceDefaults.colors(
-                containerColor = if (backFocus.isFocused) {
-                    DaiflixColors.White
-                } else {
-                    DaiflixColors.DarkSurface
-                },
-                contentColor = if (backFocus.isFocused) {
-                    DaiflixColors.Black
-                } else {
-                    DaiflixColors.White
-                },
-                focusedContainerColor = if (backFocus.isFocused) {
-                    DaiflixColors.White
-                } else {
-                    DaiflixColors.DarkSurface
-                },
-                focusedContentColor = if (backFocus.isFocused) {
-                    DaiflixColors.Black
-                } else {
-                    DaiflixColors.White
-                }
-            )
-        ) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = Icons.Rounded.ArrowBack,
-                    contentDescription = "返回",
-                    modifier = Modifier.size(24.dp)
-                )
-            }
-        }
+        // 共享返回钮（P3-4）：黑 55% 底 + 白箭头 + 1dp hairline，焦点白底黑箭头。
+        DaiflixBackButton(
+            onBack = onBack,
+            focusRequester = backFocusRequester
+        )
 
         Spacer(modifier = Modifier.width(DaiflixSpacing.lg))
 

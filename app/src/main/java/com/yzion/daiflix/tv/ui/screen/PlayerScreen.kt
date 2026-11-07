@@ -1,5 +1,6 @@
 package com.yzion.daiflix.tv.ui.screen
 
+import android.os.SystemClock
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.compose.animation.AnimatedVisibility
@@ -17,8 +18,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -58,8 +57,8 @@ import androidx.tv.material3.Text
 import com.yzion.daiflix.tv.data.model.Danmaku
 import com.yzion.daiflix.tv.ui.component.player.EpisodePanel
 import com.yzion.daiflix.tv.ui.component.player.PlayerBottomBar
-import com.yzion.daiflix.tv.ui.component.player.PlayerBufferingIndicator
 import com.yzion.daiflix.tv.ui.component.player.PlayerControl
+import com.yzion.daiflix.tv.ui.component.player.PlayerLoadingOverlay
 import com.yzion.daiflix.tv.ui.component.player.PlayerPausedOverlay
 import com.yzion.daiflix.tv.ui.component.player.PlayerSeekFeedback
 import com.yzion.daiflix.tv.ui.component.player.PlayerTopBar
@@ -71,6 +70,15 @@ import com.yzion.daiflix.tv.ui.viewmodel.PlayerViewModel
 import kotlinx.coroutines.delay
 
 private const val SEEK_STEP_MS = 10_000L
+
+/**
+ * Hold-to-accelerate steps for LEFT/RIGHT while the HUD is hidden (audit P3-1):
+ * 10s -> 30s -> 60s -> 300s. A press counts as a continuation of the running gesture
+ * when it arrives within [SEEK_GESTURE_GAP_MS]; otherwise the gesture restarts at 10s,
+ * which also implements "release / pause and the step resets".
+ */
+internal val PLAYER_SEEK_STEPS_MS = longArrayOf(10_000L, 30_000L, 60_000L, 300_000L)
+private const val SEEK_GESTURE_GAP_MS = 500L
 private const val HUD_AUTO_HIDE_MS = 4_000L
 
 /** Which bottom sheet is currently open above the player. */
@@ -103,16 +111,23 @@ fun PlayerScreen(
     var seekFeedback by remember { mutableStateOf<String?>(null) }
     var seekFeedbackTick by remember { mutableIntStateOf(0) }
     var interactionTick by remember { mutableIntStateOf(0) }
+    // Hold-to-accelerate seek gesture state (audit P3-1).
+    var seekStepIndex by remember { mutableIntStateOf(0) }
+    var lastSeekDirection by remember { mutableIntStateOf(0) }
+    var lastSeekAtMs by remember { mutableStateOf(0L) }
     val rootFocus = remember { FocusRequester() }
 
     // ------------------------------------------------------------------ player setup
-    LaunchedEffect(uiState.playUrl) {
+    LaunchedEffect(uiState.playUrl, uiState.playbackKey) {
         val url = uiState.playUrl ?: return@LaunchedEffect
         val item = MediaItem.fromUri(url)
         val startPosition = uiState.resumePosition.coerceAtLeast(0)
         exoPlayer.setMediaItem(item, startPosition)
         exoPlayer.prepare()
         exoPlayer.playWhenReady = true
+        // P2-9: only now may ExoPlayer's timeline drive the seek bar / time labels;
+        // before this point the view-model keeps them at 0 for the new episode.
+        viewModel.onMediaItemAttached()
     }
 
     LaunchedEffect(uiState.playbackSpeed) {
@@ -168,8 +183,28 @@ fun PlayerScreen(
 
     fun performSeek(deltaMs: Long) {
         viewModel.seekBy(deltaMs)
-        seekFeedback = if (deltaMs < 0) "快退 10 秒" else "快进 10 秒"
+        val seconds = (kotlin.math.abs(deltaMs) / 1000).coerceAtLeast(1)
+        seekFeedback = if (deltaMs < 0) "快退 $seconds 秒" else "快进 $seconds 秒"
         seekFeedbackTick++
+    }
+
+    /**
+     * Hold-to-accelerate seek (audit P3-1). Each press arriving within
+     * [SEEK_GESTURE_GAP_MS] of the previous one advances the step
+     * 10s -> 30s -> 60s -> 300s; a longer pause (release / pause) resets to 10s.
+     *
+     * The HUD stays hidden while seeking on purpose: if it became visible, the
+     * following key repeats would take the HUD-visible LEFT/RIGHT branch and move
+     * the control selection instead of seeking.
+     */
+    fun seekWithHold(direction: Int) {
+        val now = SystemClock.uptimeMillis()
+        val continuing = direction == lastSeekDirection &&
+            now - lastSeekAtMs <= SEEK_GESTURE_GAP_MS
+        seekStepIndex = nextSeekStepIndex(seekStepIndex, continuing)
+        lastSeekDirection = direction
+        lastSeekAtMs = now
+        performSeek(direction * PLAYER_SEEK_STEPS_MS[seekStepIndex])
     }
 
     fun activateControl(control: PlayerControl) {
@@ -255,14 +290,15 @@ fun PlayerScreen(
                 }
                 return true
             }
-            // HUD hidden: LEFT/RIGHT is the quick ±10s gesture and reveals the HUD.
+            // HUD hidden: LEFT/RIGHT is the quick seek gesture, accelerated when held
+            // (10s -> 30s -> 60s -> 300s, P3-1). The HUD is intentionally not revealed
+            // here so further key repeats keep seeking instead of moving the selection.
             // HUD visible: LEFT/RIGHT moves the control selection instead, so every
             // control (episodes/sources/speed) stays reachable from the D-pad; the
-            // dedicated 快退/快进 buttons perform the same ±10s seek with OK.
+            // dedicated 快退/快进 buttons perform a ±10s seek with OK.
             Key.DirectionLeft -> {
                 if (!hudVisible) {
-                    showHud()
-                    performSeek(-SEEK_STEP_MS)
+                    seekWithHold(-1)
                 } else {
                     selectedControl = previousControl(selectedControl)
                 }
@@ -270,8 +306,7 @@ fun PlayerScreen(
             }
             Key.DirectionRight -> {
                 if (!hudVisible) {
-                    showHud()
-                    performSeek(SEEK_STEP_MS)
+                    seekWithHold(1)
                 } else {
                     selectedControl = nextControl(selectedControl)
                 }
@@ -354,11 +389,6 @@ fun PlayerScreen(
             )
         }
 
-        // Buffering spinner (own implementation, PlayerView buffering is disabled).
-        if (uiState.isBuffering && uiState.playUrl != null) {
-            PlayerBufferingIndicator()
-        }
-
         // Paused overlay.
         if (uiState.playUrl != null && !uiState.isPlaying && !uiState.isBuffering &&
             !uiState.isLoading && uiState.error == null
@@ -392,6 +422,7 @@ fun PlayerScreen(
                     isPlaying = uiState.isPlaying,
                     speed = uiState.playbackSpeed,
                     danmakuEnabled = uiState.danmakuEnabled,
+                    danmakuCount = uiState.danmakuList.size,
                     hasNext = uiState.hasNext,
                     selected = selectedControl,
                     onControlClick = { control ->
@@ -403,36 +434,20 @@ fun PlayerScreen(
             }
         }
 
-        // Loading overlay while resolving the play URL.
-        if (uiState.isLoading && uiState.playUrl == null && uiState.error == null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(DaiflixColors.Black.copy(alpha = 0.6f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(
-                        color = DaiflixColors.Red,
-                        strokeWidth = 3.dp,
-                        modifier = Modifier.size(40.dp)
-                    )
-                    Spacer(Modifier.height(DaiflixSpacing.md))
-                    Text(
-                        text = "正在解析播放地址...",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = DaiflixColors.LightGray
-                    )
-                    if (uiState.title.isNotBlank()) {
-                        Spacer(Modifier.height(DaiflixSpacing.xxs))
-                        Text(
-                            text = uiState.title,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = DaiflixColors.TextTertiary
-                        )
-                    }
-                }
-            }
+        // Loading overlay (audit P2-9). One overlay covers both resolving the play URL
+        // and buffering / switching episodes, and it names the title and episode so the
+        // user never sees an unexplained black screen. The time axis stays at 0 until
+        // the new media is attached (see PlayerViewModel.onMediaItemAttached()).
+        if (uiState.error == null &&
+            (uiState.isBuffering || (uiState.playUrl == null && uiState.isLoading))
+        ) {
+            PlayerLoadingOverlay(
+                label = playerLoadingLabel(
+                    vodTitle = uiState.vodTitle,
+                    episodeName = uiState.currentEpisode?.name,
+                    episodeIndex = uiState.episodeIndex
+                )
+            )
         }
 
         // Episode / source bottom sheets.
@@ -484,6 +499,24 @@ private fun previousControl(control: PlayerControl): PlayerControl {
 private fun currentEpisodeLabel(episodeName: String?, episodeIndex: Int): String = when {
     !episodeName.isNullOrBlank() -> episodeName
     else -> "第${episodeIndex + 1}集"
+}
+
+/**
+ * Advances the hold-to-accelerate seek step (audit P3-1). [continuing] is true when the
+ * press belongs to the running gesture: the step then moves up one and clamps at the
+ * last (300s) step. Otherwise the gesture restarts at 10s.
+ */
+internal fun nextSeekStepIndex(current: Int, continuing: Boolean): Int =
+    if (!continuing) 0 else (current + 1).coerceAtMost(PLAYER_SEEK_STEPS_MS.lastIndex)
+
+/**
+ * Label of the player loading overlay (audit P2-9): "正在加载 · 剧名 第N集", or without
+ * the title when the state does not carry one: "正在加载 · 第N集".
+ */
+internal fun playerLoadingLabel(vodTitle: String, episodeName: String?, episodeIndex: Int): String {
+    val episode = currentEpisodeLabel(episodeName, episodeIndex)
+    val title = vodTitle.trim()
+    return if (title.isEmpty()) "正在加载 · $episode" else "正在加载 · $title $episode"
 }
 
 /** What a single BACK press on the player screen must do. */

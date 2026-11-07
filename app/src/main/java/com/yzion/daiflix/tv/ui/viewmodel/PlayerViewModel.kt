@@ -31,6 +31,12 @@ data class PlayerUiState(
     val episodes: List<Episode> = emptyList(),
     val sourceIndex: Int = 0,
     val episodeIndex: Int = 0,
+    /**
+     * vodId:sourceIndex:episodeIndex of the episode the UI wants to show. Compared with
+     * the media actually attached to ExoPlayer so a switch never leaks the previous
+     * episode's position/duration into the new timeline (audit P2-9).
+     */
+    val playbackKey: String = "",
     val vodTitle: String = "",
     val title: String = "",
     val resumePosition: Long = 0,
@@ -69,6 +75,9 @@ class PlayerViewModel @Inject constructor(
     // The screen owns the ExoPlayer lifecycle; the ViewModel only observes and commands it.
     private var player: ExoPlayer? = null
 
+    /** [PlayerUiState.playbackKey] of the media that is actually inside [player]. */
+    private var mediaKey: String? = null
+
     private val playerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             refreshPlayback()
@@ -105,10 +114,20 @@ class PlayerViewModel @Inject constructor(
         refreshPlayback()
     }
 
+    /**
+     * Called by the screen right after it hands the resolved URL to ExoPlayer:
+     * only from this point on may the player's timeline drive the seek bar.
+     */
+    fun onMediaItemAttached() {
+        mediaKey = _uiState.value.playbackKey
+        refreshPlayback()
+    }
+
     /** Called by the screen before it releases the ExoPlayer. */
     fun detachPlayer() {
         player?.removeListener(playerListener)
         player = null
+        mediaKey = null
         _uiState.update { it.copy(isPlaying = false, isBuffering = false) }
     }
 
@@ -123,14 +142,19 @@ class PlayerViewModel @Inject constructor(
 
     private fun refreshPlayback() {
         val p = player ?: return
+        val state = _uiState.value
+        // While a switch is in flight ExoPlayer still holds the previous episode; its
+        // position/duration must not leak into the new episode's timeline (audit P2-9),
+        // so the timeline stays at 0 until the screen reports the new media attached.
+        val mediaReady = state.playbackKey.isNotEmpty() && state.playbackKey == mediaKey
         val duration = p.duration
-        _uiState.update { state ->
-            state.copy(
+        _uiState.update {
+            it.copy(
                 isPlaying = p.isPlaying,
                 isBuffering = p.playbackState == Player.STATE_BUFFERING,
-                positionMs = p.currentPosition.coerceAtLeast(0),
-                durationMs = if (duration > 0) duration else state.durationMs,
-                bufferedMs = p.bufferedPosition.coerceAtLeast(0)
+                positionMs = if (mediaReady) p.currentPosition.coerceAtLeast(0) else 0L,
+                durationMs = if (mediaReady && duration > 0) duration else 0L,
+                bufferedMs = if (mediaReady) p.bufferedPosition.coerceAtLeast(0) else 0L
             )
         }
     }
@@ -241,6 +265,8 @@ class PlayerViewModel @Inject constructor(
 
     private fun resolveAndPlay(resumePosition: Long = 0) {
         playJob?.cancel()
+        // Freeze the timeline at 0 until the new media is actually attached.
+        mediaKey = null
         playJob = viewModelScope.launch {
             val vod = detail ?: return@launch
             val source = vod.playSources.getOrNull(sourceIndex) ?: return@launch
@@ -255,9 +281,15 @@ class PlayerViewModel @Inject constructor(
                     episodes = source.episodes,
                     sourceIndex = sourceIndex,
                     episodeIndex = episodeIndex,
+                    playbackKey = "${vod.id.ifBlank { vodId }}:$sourceIndex:$episodeIndex",
                     title = "${vod.title} - ${episode.name}",
                     resumePosition = resumePosition,
                     hasNext = episodeIndex + 1 < source.episodes.size,
+                    // Reset the visible timeline immediately, before ExoPlayer swaps media,
+                    // so the old episode's 43:45 / 00:00 cannot flash on the new episode.
+                    positionMs = 0,
+                    durationMs = 0,
+                    bufferedMs = 0,
                     error = null
                 )
             }

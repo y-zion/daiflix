@@ -1,5 +1,6 @@
 package com.yzion.daiflix.tv.ui.component
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,8 +46,16 @@ fun EpisodeSelector(
 ) {
     val episodes = sources.getOrNull(selectedSourceIndex)?.episodes.orEmpty()
 
+    val currentSourceName = sources.getOrNull(selectedSourceIndex)
+        ?.let { cleanedSourceName(it.name, selectedSourceIndex) }
+        ?: "线路 1"
+
     Column(modifier = modifier.fillMaxWidth()) {
+        // P2-5: a single source is the common case, so the "播放线路" group
+        // would only be noise there; the episode grid keeps its own title.
         if (sources.size > 1) {
+            GroupLabel("播放线路")
+            Spacer(modifier = Modifier.height(DaiflixSpacing.xs))
             Row(
                 horizontalArrangement = Arrangement.spacedBy(DaiflixSpacing.xs),
                 verticalAlignment = Alignment.CenterVertically,
@@ -54,14 +63,19 @@ fun EpisodeSelector(
             ) {
                 sources.forEachIndexed { index, source ->
                     SourceTab(
-                        name = source.name.ifBlank { "线路 ${index + 1}" },
+                        name = cleanedSourceName(source.name, index),
                         selected = index == selectedSourceIndex,
                         onClick = { onSourceChange(index) }
                     )
                 }
             }
             Spacer(modifier = Modifier.height(DaiflixSpacing.md))
+            SectionDivider()
+            Spacer(modifier = Modifier.height(DaiflixSpacing.md))
         }
+
+        GroupLabel(if (sources.size > 1) "选集 · $currentSourceName" else "选集")
+        Spacer(modifier = Modifier.height(DaiflixSpacing.xs))
 
         if (episodes.isEmpty()) {
             Text(
@@ -97,6 +111,41 @@ fun EpisodeSelector(
             }
         }
     }
+}
+
+/** Section label above the source row and the episode grid (audit P2-5). */
+@Composable
+private fun GroupLabel(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelLarge,
+        color = DaiflixColors.LightGray,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.fillMaxWidth()
+    )
+}
+
+/** Thin divider that separates the source group from the episode group. */
+@Composable
+private fun SectionDivider() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(1.dp)
+            .background(DaiflixColors.White.copy(alpha = 0.08f))
+    )
+}
+
+/**
+ * The site builds source names by appending the episode count ("主选二39");
+ * the parser strips it, but display keeps a defensive fallback here: drop a
+ * trailing run of digits (and spaces) plus any dangling separator.
+ */
+private fun cleanedSourceName(raw: String, index: Int): String {
+    val withoutCount = raw.trim().trimEnd { it.isDigit() || it.isWhitespace() }
+    val cleaned = withoutCount.trimEnd('-', '·', '_', ' ', '：', ':')
+    return cleaned.ifBlank { "线路 ${index + 1}" }
 }
 
 @Composable

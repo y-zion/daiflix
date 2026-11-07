@@ -19,10 +19,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -41,7 +38,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
@@ -49,6 +45,7 @@ import coil.compose.AsyncImage
 import com.yzion.daiflix.tv.data.model.WatchHistory
 import androidx.compose.ui.graphics.painter.ColorPainter
 import com.yzion.daiflix.tv.ui.component.BottomScrim
+import com.yzion.daiflix.tv.ui.component.DaiflixBackButton
 import com.yzion.daiflix.tv.ui.component.EmptyState
 import com.yzion.daiflix.tv.ui.component.RequestFocusWhenReady
 import com.yzion.daiflix.tv.ui.component.focusBorder
@@ -122,25 +119,7 @@ private fun LibraryHeader(
             ),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Surface(
-            onClick = onBack,
-            modifier = Modifier.size(48.dp),
-            shape = ClickableSurfaceDefaults.shape(CircleShape),
-            colors = ClickableSurfaceDefaults.colors(
-                containerColor = DaiflixColors.DarkSurface,
-                contentColor = DaiflixColors.White,
-                focusedContainerColor = DaiflixColors.White,
-                focusedContentColor = DaiflixColors.Black
-            )
-        ) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = Icons.Rounded.ArrowBack,
-                    contentDescription = "返回",
-                    modifier = Modifier.size(24.dp)
-                )
-            }
-        }
+        DaiflixBackButton(onBack = onBack)
 
         Spacer(modifier = Modifier.width(DaiflixSpacing.lg))
 

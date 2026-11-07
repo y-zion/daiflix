@@ -6,6 +6,8 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -20,6 +22,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -200,6 +203,54 @@ fun DaiflixDangerButton(
 }
 
 /** Small translucent metadata pill ("HD", "16+", "2024"). */
+/**
+ * Shared circular back button for every sub-screen header (audit P3-4: the detail page
+ * used "black 55% + white arrow" while history / favorites / search used "white + black
+ * arrow"). One style everywhere: a translucent black disc that stays legible on top of
+ * artwork, plus a 1dp hairline so it is still visible on the near-black page background.
+ */
+@Composable
+fun DaiflixBackButton(
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null
+) {
+    val focus = rememberFocusState()
+    Surface(
+        onClick = onBack,
+        modifier = modifier
+            .size(48.dp)
+            .then(
+                if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier
+            )
+            .trackFocus(focus)
+            .focusHalo(focus, cornerRadius = 24.dp),
+        shape = ClickableSurfaceDefaults.shape(CircleShape),
+        // Colors are driven by focus.isFocused (not the tv-material interaction source), so the
+        // focused white disc renders on the very first frame (audit P1-3).
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = if (focus.isFocused) DaiflixColors.White else DaiflixColors.Black.copy(alpha = 0.55f),
+            contentColor = if (focus.isFocused) DaiflixColors.Black else DaiflixColors.White,
+            focusedContainerColor = if (focus.isFocused) DaiflixColors.White else DaiflixColors.Black.copy(alpha = 0.55f),
+            focusedContentColor = if (focus.isFocused) DaiflixColors.Black else DaiflixColors.White
+        ),
+        border = ClickableSurfaceDefaults.border(
+            border = if (focus.isFocused) Border.None else Border(BorderStroke(1.dp, DaiflixColors.White.copy(alpha = 0.25f))),
+            focusedBorder = Border.None
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f)
+    ) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = Icons.Rounded.ArrowBack,
+                contentDescription = "返回",
+                modifier = Modifier.size(24.dp),
+                tint = if (focus.isFocused) DaiflixColors.Black else DaiflixColors.White
+            )
+        }
+    }
+}
+
 @Composable
 fun MetaPill(
     text: String,

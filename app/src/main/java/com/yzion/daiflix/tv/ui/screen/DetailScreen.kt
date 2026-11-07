@@ -10,15 +10,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
@@ -27,12 +25,16 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -48,13 +50,12 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.yzion.daiflix.tv.data.model.VodDetail
-import com.yzion.daiflix.tv.ui.component.BottomScrim
+import com.yzion.daiflix.tv.ui.component.DaiflixBackButton
 import com.yzion.daiflix.tv.ui.component.DaiflixPrimaryButton
 import com.yzion.daiflix.tv.ui.component.DaiflixSecondaryButton
 import com.yzion.daiflix.tv.ui.component.EpisodeSelector
@@ -158,9 +159,16 @@ private fun DetailContent(
     val playLabel = if (canResume) "继续播放 $episodeLabel" else "播放"
 
     val playFocusRequester = remember { FocusRequester() }
+    // P2-4: the 展开/收起 toggle sits between the synopsis and the action row,
+    // so the default 2D focus search skips it; wire it explicitly.
+    val expandFocusRequester = remember { FocusRequester() }
     val backFocusRequester = remember { FocusRequester() }
-    val backFocus = rememberFocusState()
     val scrollState = rememberScrollState()
+
+    // P2-4: the synopsis starts clamped to 3 lines; the toggle only appears
+    // when the clamped text actually overflows (measured via onTextLayout).
+    var descriptionExpanded by remember(detail.id, detail.description) { mutableStateOf(false) }
+    var descriptionOverflows by remember(detail.id, detail.description) { mutableStateOf(false) }
 
     // Enter the page pinned to the top. Focus now lands on the hero back button
     // (below) instead of the in-body play button; the old LaunchedEffect that
@@ -176,6 +184,12 @@ private fun DetailContent(
 
     val backdrop = detail.backdropUrl.ifBlank { detail.coverUrl }
 
+    // P2-1: the site sometimes stuffs a full release-date list into `year`
+    // (e.g. "2023-08-08(中国大陆),2023-08-05(大规模点映)"); only the first
+    // 4-digit year is meaningful inside a pill.
+    val displayYear = remember(detail.year) { detail.year.firstYearOrEmpty() }
+    val displayRegion = remember(detail.region) { detail.region.trim() }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -183,9 +197,12 @@ private fun DetailContent(
     ) {
         // ---- Hero ----
         Box(
+            // heightIn(min=...) instead of height(...): expanding the synopsis
+            // must never clip the text, so the hero is allowed to grow with
+            // its copy while keeping the 520dp minimum of the design.
             modifier = Modifier
                 .fillMaxWidth()
-                .height(BannerDimensions.heroHeight)
+                .heightIn(min = BannerDimensions.heroHeight)
         ) {
             AsyncImage(
                 model = backdrop,
@@ -193,10 +210,26 @@ private fun DetailContent(
                 contentScale = ContentScale.Crop,
                 placeholder = ColorPainter(DaiflixColors.DarkSurface),
                 error = ColorPainter(DaiflixColors.DarkCard),
-                modifier = Modifier.fillMaxSize()
+                // matchParentSize(): the backdrop must follow the hero's
+                // measured height, not drive it (the hero can grow when the
+                // synopsis is expanded).
+                modifier = Modifier.matchParentSize()
             )
-            HorizontalScrim(modifier = Modifier.fillMaxSize())
-            BottomScrim(modifier = Modifier.fillMaxSize(), strength = 1f)
+            HorizontalScrim(modifier = Modifier.matchParentSize())
+            // P3-3: the fade ends on the page background instead of opaque
+            // black, so the bottom edge of the hero blends into the scrolling
+            // content and leaves no hard horizontal seam at the screen bottom.
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(
+                        Brush.verticalGradient(
+                            0f to Color.Transparent,
+                            0.55f to DaiflixColors.Black.copy(alpha = 0.45f),
+                            1f to DaiflixColors.Background
+                        )
+                    )
+            )
             TopScrim(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -204,67 +237,26 @@ private fun DetailContent(
                     .align(Alignment.TopCenter)
             )
 
-            // Floating back button. Focus styling is driven by the explicit
-            // rememberFocusState() (onFocusChanged) instead of the tv-material
-            // interactionSource focused colors: on the very first frame the
-            // first FocusInteraction can be missed, leaving a focused button
-            // that does not look focused (audit P1-3).
-            Surface(
-                onClick = onBack,
+            // Shared back button (focus styling, white fill + black arrow on
+            // focus, lives in Common.kt). DOWN is routed explicitly to the
+            // play button because the poster column sits between them.
+            DaiflixBackButton(
+                onBack = onBack,
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .padding(start = DaiflixSpacing.screenPadding, top = DaiflixSpacing.md)
-                    .size(48.dp)
-                    .focusRequester(backFocusRequester)
-                    .trackFocus(backFocus)
-                    .focusHalo(backFocus, cornerRadius = 24.dp)
                     .onPreviewKeyEvent { event ->
-                        // Poster column sits between the back button and the
-                        // action row, so DOWN is routed explicitly instead of
-                        // relying on geometric focus search.
                         if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionDown) {
-                            // Only swallow the event when the move actually
-                            // happened; otherwise fall back to default focus
-                            // search so focus never gets stuck on the back
-                            // button.
+                            // Swallow DOWN only when focus actually moved;
+                            // otherwise fall back to default focus search so
+                            // focus never gets stuck on the back button.
                             runCatching { playFocusRequester.requestFocus() }.isSuccess
                         } else {
                             false
                         }
                     },
-                shape = ClickableSurfaceDefaults.shape(CircleShape),
-                colors = ClickableSurfaceDefaults.colors(
-                    containerColor = if (backFocus.isFocused) {
-                        DaiflixColors.White
-                    } else {
-                        DaiflixColors.Black.copy(alpha = 0.55f)
-                    },
-                    contentColor = if (backFocus.isFocused) {
-                        DaiflixColors.Black
-                    } else {
-                        DaiflixColors.White
-                    },
-                    focusedContainerColor = DaiflixColors.White,
-                    focusedContentColor = DaiflixColors.Black
-                ),
-                border = ClickableSurfaceDefaults.border(
-                    border = if (backFocus.isFocused) {
-                        focusBorder(DaiflixColors.Black)
-                    } else {
-                        Border.None
-                    }
-                ),
-                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f)
-            ) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Rounded.ArrowBack,
-                        contentDescription = "返回",
-                        modifier = Modifier.size(24.dp),
-                        tint = if (backFocus.isFocused) DaiflixColors.Black else DaiflixColors.White
-                    )
-                }
-            }
+                focusRequester = backFocusRequester
+            )
 
             // Poster + copy at the bottom of the artwork.
             Row(
@@ -273,6 +265,9 @@ private fun DetailContent(
                     .fillMaxWidth()
                     .padding(
                         start = DaiflixSpacing.screenPadding,
+                        // Clears the floating back button when the synopsis is
+                        // expanded and the hero grows past one screen.
+                        top = DaiflixSpacing.xxl + DaiflixSpacing.xl,
                         end = DaiflixSpacing.screenPadding,
                         bottom = DaiflixSpacing.xxl
                     ),
@@ -313,8 +308,8 @@ private fun DetailContent(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         MetaPill(detail.category.displayName)
-                        if (detail.year.isNotBlank()) MetaPill(detail.year)
-                        if (detail.region.isNotBlank()) MetaPill(detail.region)
+                        if (displayYear.isNotEmpty()) MetaPill(displayYear)
+                        if (displayRegion.isNotEmpty()) MetaPill(displayRegion)
                         if (detail.rating.isNotBlank()) {
                             MetaPill("★ ${detail.rating}", color = DaiflixColors.Gold)
                         }
@@ -337,16 +332,64 @@ private fun DetailContent(
                             text = detail.description,
                             style = MaterialTheme.typography.bodyLarge,
                             color = DaiflixColors.LightGray,
-                            maxLines = 3,
+                            maxLines = if (descriptionExpanded) Int.MAX_VALUE else 3,
+                            overflow = if (descriptionExpanded) {
+                                TextOverflow.Clip
+                            } else {
+                                TextOverflow.Ellipsis
+                            },
+                            onTextLayout = { layout ->
+                                // Only meaningful while clamped to 3 lines.
+                                if (!descriptionExpanded) {
+                                    descriptionOverflows = layout.hasVisualOverflow
+                                }
+                            }
+                        )
+                        if (descriptionOverflows || descriptionExpanded) {
+                            Spacer(modifier = Modifier.height(DaiflixSpacing.xxs))
+                            ExpandToggle(
+                                expanded = descriptionExpanded,
+                                onClick = { descriptionExpanded = !descriptionExpanded },
+                                modifier = Modifier.focusRequester(expandFocusRequester),
+                                playFocusRequester = playFocusRequester
+                            )
+                        }
+                    }
+
+                    // P2-3: director / cast were parsed but never shown. One
+                    // compact line, no focus, so it never disturbs the D-pad
+                    // chain between the play button and the back button.
+                    val credits = listOfNotNull(
+                        detail.director.cleanPeople().takeIf { it.isNotEmpty() }?.let { "导演：$it" },
+                        detail.actors.cleanPeople().takeIf { it.isNotEmpty() }?.let { "主演：$it" }
+                    ).joinToString("｜")
+                    if (credits.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(DaiflixSpacing.xs))
+                        Text(
+                            text = credits,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = DaiflixColors.LightGray,
+                            maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(DaiflixSpacing.lg))
+                    Spacer(modifier = Modifier.height(DaiflixSpacing.md))
 
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(DaiflixSpacing.md),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.onPreviewKeyEvent { event ->
+                            // P2-4: reach the 展开/收起 toggle from the action row.
+                            if (event.type == KeyEventType.KeyDown &&
+                                event.key == Key.DirectionUp &&
+                                (descriptionOverflows || descriptionExpanded)
+                            ) {
+                                runCatching { expandFocusRequester.requestFocus() }.isSuccess
+                            } else {
+                                false
+                            }
+                        }
                     ) {
                         DaiflixPrimaryButton(
                             text = playLabel,
@@ -412,6 +455,69 @@ private fun DetailContent(
         Spacer(modifier = Modifier.height(DaiflixSpacing.xxxl))
     }
 }
+
+/** Small focusable 展开/收起 chip shown only when the synopsis overflows. */
+@Composable
+private fun ExpandToggle(
+    expanded: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    playFocusRequester: FocusRequester
+) {
+    val focus = rememberFocusState()
+    Surface(
+        onClick = onClick,
+        modifier = modifier
+            .trackFocus(focus)
+            .focusHalo(focus, cornerRadius = 6.dp)
+            .onPreviewKeyEvent { event ->
+                // DOWN goes back to the play button (the toggle sits above it).
+                if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionDown) {
+                    runCatching { playFocusRequester.requestFocus() }.isSuccess
+                } else {
+                    false
+                }
+            },
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = DaiflixColors.DarkCard,
+            contentColor = DaiflixColors.LightGray,
+            focusedContainerColor = DaiflixColors.White,
+            focusedContentColor = DaiflixColors.Black,
+            pressedContainerColor = DaiflixColors.DarkRed,
+            pressedContentColor = DaiflixColors.White
+        ),
+        border = ClickableSurfaceDefaults.border(
+            border = if (focus.isFocused) focusBorder() else Border.None
+        )
+    ) {
+        Text(
+            text = if (expanded) "收起" else "展开",
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 1,
+            modifier = Modifier.padding(
+                horizontal = DaiflixSpacing.md,
+                vertical = DaiflixSpacing.xxs
+            )
+        )
+    }
+}
+
+private val YEAR_REGEX = Regex("\\d{4}")
+
+/** First 4-digit year in [this], or "" when there is none (audit P2-1). */
+private fun String.firstYearOrEmpty(): String = YEAR_REGEX.find(this)?.value.orEmpty()
+
+private val PEOPLE_SEPARATORS = Regex("[/、,，|｜;；\\s]+")
+
+/**
+ * The site stores credits as `/郭帆/` or `/吴京/刘德华/...`; strip the padding slashes
+ * and normalise the separator so the line reads `导演：郭帆｜主演：吴京、刘德华`（P2-3）。
+ */
+private fun String.cleanPeople(): String = split(PEOPLE_SEPARATORS)
+    .map { it.trim() }
+    .filter { it.isNotEmpty() }
+    .joinToString("、")
 
 @Composable
 private fun DetailErrorState(

@@ -38,6 +38,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.geometry.Offset
@@ -63,6 +64,9 @@ enum class PlayerControl {
 }
 
 val PLAYER_SPEED_STEPS = listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
+
+/** Content alpha of a disabled HUD control (audit P3-2: must read clearly dimmer). */
+private const val DISABLED_CONTROL_ALPHA = 0.28f
 
 /** "1.0" / "0.75" / "1.25" style label used by the speed control. */
 fun playerSpeedLabel(speed: Float): String = when (speed) {
@@ -177,6 +181,7 @@ fun PlayerBottomBar(
     isPlaying: Boolean,
     speed: Float,
     danmakuEnabled: Boolean,
+    danmakuCount: Int,
     hasNext: Boolean,
     selected: PlayerControl,
     onControlClick: (PlayerControl) -> Unit,
@@ -266,7 +271,13 @@ fun PlayerBottomBar(
             PlayerControlButton(
                 selected = selected == PlayerControl.DANMAKU,
                 icon = if (danmakuEnabled) Icons.Rounded.ClosedCaption else Icons.Rounded.ClosedCaptionOff,
-                label = if (danmakuEnabled) "弹幕开" else "弹幕关",
+                // Audit P2-9 follow-up: "弹幕开" alone was indistinguishable from a broken
+                // feature when the source simply has no danmaku, so show the loaded count.
+                label = when {
+                    !danmakuEnabled -> "弹幕关"
+                    danmakuCount > 0 -> "弹幕 $danmakuCount"
+                    else -> "暂无弹幕"
+                },
                 onClick = { onControlClick(PlayerControl.DANMAKU) }
             )
             PlayerControlButton(
@@ -288,14 +299,20 @@ private fun PlayerControlButton(
     primary: Boolean = false,
     enabled: Boolean = true
 ) {
+    // Explicit disabled branch (audit P3-2): tv-material's default disabled look was
+    // almost the same as "unfocused but available". Disabled content is dimmed to ~28%
+    // alpha, gets no selection ring/scale and cannot be focused; the available unfocused
+    // state keeps the current opaque light-grey label.
     val scale by animateFloatAsState(
-        targetValue = if (selected) 1.08f else 1f,
+        targetValue = if (selected && enabled) 1.08f else 1f,
         animationSpec = tween(durationMillis = 120),
         label = "playerControlScale"
     )
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.scale(scale)
+        modifier = Modifier
+            .scale(scale)
+            .alpha(if (enabled) 1f else DISABLED_CONTROL_ALPHA)
     ) {
         val buttonSize = if (primary) 66.dp else 52.dp
         Box(
@@ -303,7 +320,7 @@ private fun PlayerControlButton(
                 .size(buttonSize + 10.dp)
                 .border(
                     width = 2.dp,
-                    color = if (selected) DaiflixColors.White else Color.Transparent,
+                    color = if (selected && enabled) DaiflixColors.White else Color.Transparent,
                     shape = CircleShape
                 ),
             contentAlignment = Alignment.Center
@@ -331,11 +348,7 @@ private fun PlayerControlButton(
                     Icon(
                         imageVector = icon,
                         contentDescription = label,
-                        tint = if (enabled) {
-                            if (primary) DaiflixColors.Black else DaiflixColors.White
-                        } else {
-                            DaiflixColors.MediumGray
-                        },
+                        tint = if (primary) DaiflixColors.Black else DaiflixColors.White,
                         modifier = Modifier.size(if (primary) 34.dp else 26.dp)
                     )
                 }
@@ -345,11 +358,7 @@ private fun PlayerControlButton(
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            color = when {
-                !enabled -> DaiflixColors.TextTertiary
-                selected -> DaiflixColors.White
-                else -> DaiflixColors.LightGray
-            },
+            color = if (selected && enabled) DaiflixColors.White else DaiflixColors.LightGray,
             textAlign = TextAlign.Center,
             maxLines = 1
         )
@@ -380,6 +389,40 @@ fun PlayerPausedOverlay(modifier: Modifier = Modifier) {
 
 @Composable
 fun PlayerBufferingIndicator(modifier: Modifier = Modifier) {
+    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        BufferingRing()
+    }
+}
+
+/**
+ * Loading / episode-switch state (audit P2-9): ring + "正在加载 · 剧名 第N集".
+ *
+ * Previously the switch showed either a silent 64dp ring (buffering) or a generic
+ * "正在解析播放地址..." without the episode, so users could not tell what was loading.
+ */
+@Composable
+fun PlayerLoadingOverlay(label: String, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(DaiflixColors.Black.copy(alpha = 0.6f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            BufferingRing()
+            Spacer(Modifier.height(DaiflixSpacing.md))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium,
+                color = DaiflixColors.LightGray,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
+private fun BufferingRing(modifier: Modifier = Modifier) {
     val infiniteTransition = rememberInfiniteTransition(label = "buffering")
     val rotation by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -389,21 +432,19 @@ fun PlayerBufferingIndicator(modifier: Modifier = Modifier) {
         ),
         label = "bufferingRotation"
     )
-    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Canvas(modifier = Modifier.size(64.dp)) {
-            drawArc(
-                color = DaiflixColors.White.copy(alpha = 0.9f),
-                startAngle = rotation,
-                sweepAngle = 270f,
-                useCenter = false,
-                topLeft = Offset(4.dp.toPx(), 4.dp.toPx()),
-                size = androidx.compose.ui.geometry.Size(
-                    size.width - 8.dp.toPx(),
-                    size.height - 8.dp.toPx()
-                ),
-                style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round)
-            )
-        }
+    Canvas(modifier = modifier.size(64.dp)) {
+        drawArc(
+            color = DaiflixColors.White.copy(alpha = 0.9f),
+            startAngle = rotation,
+            sweepAngle = 270f,
+            useCenter = false,
+            topLeft = Offset(4.dp.toPx(), 4.dp.toPx()),
+            size = androidx.compose.ui.geometry.Size(
+                size.width - 8.dp.toPx(),
+                size.height - 8.dp.toPx()
+            ),
+            style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round)
+        )
     }
 }
 

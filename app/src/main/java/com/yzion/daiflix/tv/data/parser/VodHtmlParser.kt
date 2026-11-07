@@ -116,7 +116,7 @@ class VodHtmlParser @Inject constructor() {
 
         // 提取元数据
         val videoInfoItems = doc.select(".video-info-items")
-        val year = extractInfoValue(videoInfoItems, "上映", "年份", "年代")
+        val year = extractReleaseYear(extractInfoValue(videoInfoItems, "上映", "年份", "年代"))
         val region = extractInfoValue(videoInfoItems, "地区", "国家")
         val rating = extractInfoValue(videoInfoItems, "评分")
         val director = extractInfoValue(videoInfoItems, "导演")
@@ -124,23 +124,20 @@ class VodHtmlParser @Inject constructor() {
         val description = doc.selectFirst(".video-info-content.vod_content span")
             ?.text()?.trim() ?: ""
 
-        // 提取分类
+        // 提取分类。类型字段缺失时 inferCategory 会回退到 MOVIE，
+        // 再用剧集数量兜底（审计 P2-2：《狂飙》曾显示成「电影」）。
         val categoryText = extractInfoValue(videoInfoItems, "类型", "分类")
-        val category = inferCategory(categoryText, title)
+        val rawCategory = inferCategory(categoryText, title)
 
         // 提取播放源和集数
         val playSources = parsePlaySources(doc)
+        val category = refineCategoryByEpisodes(rawCategory, playSources)
 
         val id = extractIdFromUrl(doc.location()) ?: ""
 
-        // 提取相关推荐
-        val relatedItems = mutableListOf<VodItem>()
-        doc.select(".module-item").forEach { el ->
-            val item = parseVodItemFromModule(el, Category.HOME)
-            if (item != null && item.coverUrl.isNotBlank() && item.id != id && item.title != title) {
-                relatedItems.add(item)
-            }
-        }
+        // 提取相关推荐：只取「相关推荐/猜你喜欢」模块里的卡片（审计 P2-6：
+        // 之前抓整页 .module-item，把导航/页脚模块的无关影片也当成了推荐）。
+        val relatedItems = parseRelatedItems(doc, id, title)
 
         return VodDetail(
             id = id,
@@ -155,7 +152,7 @@ class VodHtmlParser @Inject constructor() {
             actors = actors,
             description = description,
             playSources = playSources,
-            relatedItems = relatedItems.distinctBy { it.id }.take(20)
+            relatedItems = relatedItems
         )
     }
 
@@ -487,7 +484,9 @@ class VodHtmlParser @Inject constructor() {
 
         if (sourceTabs.isNotEmpty()) {
             sourceTabs.forEachIndexed { index, tab ->
-                val name = tab.text().trim().ifBlank { "播放源${index + 1}" }
+                val name = cleanSourceName(
+                    tab.text().trim().ifBlank { "播放源${index + 1}" }
+                )
                 val listContainer = sourceLists.getOrNull(index)
 
                 val episodes = listContainer
@@ -531,6 +530,57 @@ class VodHtmlParser @Inject constructor() {
         }
 
         return sources
+    }
+
+    /**
+     * 站点把「上映日期」整串塞进年份字段（如 `2023-08-08(中国大陆),2023-08-05(大规模点映)`），
+     * 详情页只该显示 4 位年份（审计 P2-1）。
+     */
+    private fun extractReleaseYear(raw: String): String =
+        Regex("(19|20)\\d{2}").find(raw)?.value.orEmpty()
+
+    /**
+     * 类型字段缺失时 [inferCategory] 回退成 MOVIE；一条线路有 2 集以上就不可能是电影，
+     * 用它把误判的剧集纠正成电视剧（审计 P2-2）。
+     */
+    private fun refineCategoryByEpisodes(category: Category, sources: List<PlaySource>): Category {
+        if (category != Category.MOVIE) return category
+        val maxEpisodes = sources.maxOfOrNull { it.episodes.size } ?: 0
+        return if (maxEpisodes > 1) Category.TV_SERIES else category
+    }
+
+    /** 线路 tab 文字常带集数后缀（`主选二39`），去掉尾部纯数字（审计 P2-5）。 */
+    private fun cleanSourceName(raw: String): String =
+        raw.replace(Regex("\\s*\\d+\\s*$"), "").trim().ifBlank { raw }
+
+    /**
+     * 相关推荐：优先只在含「相关/推荐/猜你喜欢」标题的模块里取卡片，取不到才退整页；
+     * 这样能过滤掉导航与页脚里的无关影片（审计 P2-6）。
+     */
+    private fun parseRelatedItems(
+        doc: Document,
+        currentId: String,
+        currentTitle: String
+    ): List<VodItem> {
+        val sectionKeywords = listOf("相关", "推荐", "猜你喜欢", "相似")
+        val scoped = doc.select(".module-list, .module-blocklist")
+            .filter { container ->
+                val heading = container.previousElementSibling()?.text().orEmpty() +
+                    container.selectFirst(".module-title, h2")?.text().orEmpty()
+                sectionKeywords.any { heading.contains(it) }
+            }
+            .flatMap { container -> container.select(".module-item") }
+        val candidates = if (scoped.isNotEmpty()) scoped else doc.select(".module-item")
+        return candidates
+            .mapNotNull { element -> parseVodItemFromModule(element, Category.HOME) }
+            .filter { item ->
+                item.id != currentId &&
+                    item.title != currentTitle &&
+                    item.title.isNotBlank() &&
+                    item.coverUrl.isNotBlank()
+            }
+            .distinctBy { it.id }
+            .take(12)
     }
 
     private fun extractInfoValue(infoItems: org.jsoup.select.Elements, vararg keys: String): String {

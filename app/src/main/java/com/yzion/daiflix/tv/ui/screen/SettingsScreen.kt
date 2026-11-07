@@ -12,14 +12,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -35,13 +31,13 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Switch
@@ -49,6 +45,7 @@ import androidx.tv.material3.SwitchDefaults
 import androidx.tv.material3.Text
 import com.yzion.daiflix.tv.data.local.AppPreferences
 import com.yzion.daiflix.tv.data.repository.VodRepository
+import com.yzion.daiflix.tv.ui.component.DaiflixBackButton
 import com.yzion.daiflix.tv.ui.component.DaiflixDangerButton
 import com.yzion.daiflix.tv.ui.component.DaiflixPrimaryButton
 import com.yzion.daiflix.tv.ui.component.DaiflixSecondaryButton
@@ -135,11 +132,9 @@ fun SettingsScreen(
     val packageInfo = remember(context) {
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0) }.getOrNull()
     }
-    val appName = remember(context) {
-        runCatching {
-            context.applicationInfo.loadLabel(context.packageManager)?.toString()
-        }.getOrNull() ?: "Daiflix"
-    }
+    // 品牌字标固定大写 DAIFLIX，不跟随包名/系统语言的显示名（debug 变体也保持一致，
+    // 避免「关于」页出现 Daiflix / DAIFLIX (Debug) 等大小写混用）。
+    val appName = "DAIFLIX"
     val versionName = packageInfo?.versionName ?: "未知"
 
     Box(
@@ -159,25 +154,9 @@ fun SettingsScreen(
                     ),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Surface(
-                    onClick = onBack,
-                    modifier = Modifier.size(48.dp),
-                    shape = ClickableSurfaceDefaults.shape(CircleShape),
-                    colors = ClickableSurfaceDefaults.colors(
-                        containerColor = DaiflixColors.DarkSurface,
-                        contentColor = DaiflixColors.White,
-                        focusedContainerColor = DaiflixColors.White,
-                        focusedContentColor = DaiflixColors.Black
-                    )
-                ) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Rounded.ArrowBack,
-                            contentDescription = "返回",
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                }
+                // 返回圆钮统一走共享组件，与收藏页/历史页同款（审计 P3-4）。
+                // 不传 focusRequester：首屏焦点仍由 RequestFocusWhenReady(firstRowFocusRequester) 决定。
+                DaiflixBackButton(onBack = onBack)
 
                 Spacer(modifier = Modifier.width(DaiflixSpacing.lg))
 
@@ -222,6 +201,18 @@ fun SettingsScreen(
                         label = "启用弹幕",
                         checked = uiState.danmakuEnabled,
                         onCheckedChange = { viewModel.setDanmakuEnabled(it) }
+                    )
+                    // 说明文字：弹幕功能是接好线的，部分片源本身没有弹幕数据，
+                    // 避免用户误以为开关失效。
+                    Text(
+                        text = "部分片源没有弹幕数据，播放页会显示弹幕数量",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = DaiflixColors.MediumGray,
+                        modifier = Modifier.padding(
+                            start = DaiflixSpacing.md,
+                            end = DaiflixSpacing.md,
+                            bottom = DaiflixSpacing.xxs
+                        )
                     )
                     SettingsRow(
                         label = "弹幕透明度",
@@ -368,7 +359,9 @@ private fun SettingsSection(
         Text(
             text = title,
             style = MaterialTheme.typography.titleMedium,
-            color = DaiflixColors.Red,
+            // 分区标题用中性色：品牌红只留给危险操作（清除观看记录），避免语义冲突。
+            color = DaiflixColors.LightGray,
+            fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(bottom = DaiflixSpacing.xxs)
         )
         content()
