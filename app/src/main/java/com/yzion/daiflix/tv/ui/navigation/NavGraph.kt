@@ -8,6 +8,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.toRoute
+import com.yzion.daiflix.tv.ui.component.KeepScreenOn
 import com.yzion.daiflix.tv.ui.screen.*
 
 @Composable
@@ -82,6 +83,8 @@ fun DaiflixNavGraph(
 
         composable<Screen.Player> { backStackEntry ->
             val player = backStackEntry.toRoute<Screen.Player>()
+            // Requirement: never let the panel sleep while a video is playing.
+            KeepScreenOn()
             PlayerScreen(
                 vodId = player.vodId,
                 sourceIndex = player.sourceIndex,

@@ -1,9 +1,11 @@
 package com.yzion.daiflix.tv.ui.component
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,7 +27,9 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -138,42 +142,75 @@ private fun NavItem(
     modifier: Modifier = Modifier
 ) {
     val interaction = remember { MutableInteractionSource() }
-    val focused by interaction.collectIsFocusedAsState()
-    val color = when {
+    // Focus style is driven by an explicit focus state instead of the tv-material
+    // FocusInteraction: the latter is a replay-less SharedFlow, so the first
+    // Focus event fired by a parent LaunchedEffect requestFocus() is lost and the
+    // very first frame shows an unfocused tab until the user presses a key.
+    val focus = rememberFocusState()
+    val scale by animateFloatAsState(
+        targetValue = if (focus.isFocused) 1.08f else 1f,
+        label = "navItemScale"
+    )
+    val contentColor = when {
+        focus.isFocused -> DaiflixColors.White
         isSelected -> DaiflixColors.White
-        focused -> DaiflixColors.White
         else -> DaiflixColors.LightGray
     }
 
     Surface(
         onClick = onClick,
         interactionSource = interaction,
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color.Transparent,
-            contentColor = color,
+            contentColor = contentColor,
             focusedContainerColor = Color.Transparent,
             focusedContentColor = DaiflixColors.White,
             pressedContainerColor = Color.Transparent,
             pressedContentColor = DaiflixColors.White
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.10f),
         modifier = modifier
+            .trackFocus(focus)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
     ) {
-        Text(
-            text = label,
-            style = if (compact) {
-                MaterialTheme.typography.titleSmall
-            } else {
-                MaterialTheme.typography.titleMedium.copy(
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                // Focus = light pill behind the label; selection = red underline.
+                // Keeping the two signals distinct fixes "can't tell which tab is
+                // focused vs which one is the current page".
+                .background(
+                    if (focus.isFocused) DaiflixColors.White.copy(alpha = 0.16f)
+                    else Color.Transparent
                 )
-            },
-            color = color,
-            modifier = Modifier.padding(
-                horizontal = if (compact) DaiflixSpacing.xs else DaiflixSpacing.sm,
-                vertical = DaiflixSpacing.xs
+                .padding(
+                    horizontal = if (compact) DaiflixSpacing.xs else DaiflixSpacing.sm,
+                    vertical = DaiflixSpacing.xxs
+                )
+        ) {
+            Text(
+                text = label,
+                style = if (compact) {
+                    MaterialTheme.typography.titleSmall
+                } else {
+                    MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                    )
+                },
+                color = contentColor,
+                maxLines = 1
             )
-        )
+            Spacer(modifier = Modifier.height(DaiflixSpacing.xxs))
+            Box(
+                modifier = Modifier
+                    .width(if (compact) 14.dp else 20.dp)
+                    .height(2.dp)
+                    .background(if (isSelected) DaiflixColors.Red else Color.Transparent)
+            )
+        }
     }
 }

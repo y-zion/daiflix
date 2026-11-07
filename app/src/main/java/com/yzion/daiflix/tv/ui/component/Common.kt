@@ -26,6 +26,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -50,7 +52,12 @@ import com.yzion.daiflix.tv.ui.theme.DaiflixSpacing
 fun focusBorder(color: Color = DaiflixColors.FocusRing): Border =
     Border(BorderStroke(2.dp, color))
 
-/** Netflix "Play" button: solid white, black label, grows and lifts on focus. */
+/**
+ * Netflix "Play" button: solid white, black label, grows on focus.
+ *
+ * 白底按钮在白字焦点环下无法区分，所以使用画在组件外沿的 [focusHalo]
+ * （白圈 + 3dp 暗色间隙），焦点态一眼可见（审计 P1-1）。
+ */
 @Composable
 fun DaiflixPrimaryButton(
     text: String,
@@ -58,11 +65,9 @@ fun DaiflixPrimaryButton(
     modifier: Modifier = Modifier,
     icon: ImageVector? = null
 ) {
-    val interaction = remember { MutableInteractionSource() }
-    val focused by interaction.collectIsFocusedAsState()
+    val focus = rememberFocusState()
     Surface(
         onClick = onClick,
-        interactionSource = interaction,
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = DaiflixColors.White,
@@ -72,6 +77,8 @@ fun DaiflixPrimaryButton(
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
         modifier = modifier
+            .trackFocus(focus)
+            .focusHalo(focus, cornerRadius = 8.dp)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 28.dp, vertical = 14.dp),
@@ -89,7 +96,7 @@ fun DaiflixPrimaryButton(
             Text(
                 text = text,
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                color = if (focused) DaiflixColors.Black else DaiflixColors.Black
+                color = DaiflixColors.Black
             )
         }
     }
@@ -103,11 +110,9 @@ fun DaiflixSecondaryButton(
     modifier: Modifier = Modifier,
     icon: ImageVector? = null
 ) {
-    val interaction = remember { MutableInteractionSource() }
-    val focused by interaction.collectIsFocusedAsState()
+    val focus = rememberFocusState()
     Surface(
         onClick = onClick,
-        interactionSource = interaction,
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color(0xB36D6D70),
@@ -117,6 +122,8 @@ fun DaiflixSecondaryButton(
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
         modifier = modifier
+            .trackFocus(focus)
+            .focusHalo(focus, cornerRadius = 8.dp)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 24.dp, vertical = 14.dp),
@@ -128,13 +135,65 @@ fun DaiflixSecondaryButton(
                     imageVector = icon,
                     contentDescription = null,
                     modifier = Modifier.size(24.dp),
-                    tint = if (focused) DaiflixColors.Black else DaiflixColors.White
+                    tint = if (focus.isFocused) DaiflixColors.Black else DaiflixColors.White
                 )
             }
             Text(
                 text = text,
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                color = if (focused) DaiflixColors.Black else DaiflixColors.White
+                color = if (focus.isFocused) DaiflixColors.Black else DaiflixColors.White
+            )
+        }
+    }
+}
+
+/**
+ * Destructive action button (审计 P1-7)：红描边 + 红字，焦点时红底白字 + 白色焦点环。
+ * 与主按钮的白底形成明确的危险/普通语义区分。
+ */
+@Composable
+fun DaiflixDangerButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null
+) {
+    val focus = rememberFocusState()
+    Surface(
+        onClick = onClick,
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color.Transparent,
+            contentColor = DaiflixColors.Red,
+            focusedContainerColor = DaiflixColors.Red,
+            focusedContentColor = DaiflixColors.White
+        ),
+        border = ClickableSurfaceDefaults.border(
+            border = Border(BorderStroke(2.dp, DaiflixColors.Red)),
+            focusedBorder = Border(BorderStroke(2.dp, DaiflixColors.FocusRing))
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
+        modifier = modifier
+            .trackFocus(focus)
+            .focusHalo(focus, cornerRadius = 8.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            if (icon != null) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp),
+                    tint = if (focus.isFocused) DaiflixColors.White else DaiflixColors.Red
+                )
+            }
+            Text(
+                text = text,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = if (focus.isFocused) DaiflixColors.White else DaiflixColors.Red
             )
         }
     }
@@ -259,7 +318,13 @@ fun EmptyState(
     modifier: Modifier = Modifier,
     message: String? = null,
     actionLabel: String? = null,
-    onAction: (() -> Unit)? = null
+    onAction: (() -> Unit)? = null,
+    /**
+     * When supplied, the action button takes the initial D-pad focus. Empty screens
+     * have nothing else focusable, so without this the remote would be dead until
+     * the user found the one button by luck.
+     */
+    actionFocusRequester: FocusRequester? = null
 ) {
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
@@ -281,7 +346,18 @@ fun EmptyState(
             }
             if (actionLabel != null && onAction != null) {
                 Spacer(modifier = Modifier.height(DaiflixSpacing.lg))
-                DaiflixPrimaryButton(text = actionLabel, onClick = onAction)
+                if (actionFocusRequester != null) {
+                    RequestFocusWhenReady(actionFocusRequester)
+                }
+                DaiflixPrimaryButton(
+                    text = actionLabel,
+                    onClick = onAction,
+                    modifier = if (actionFocusRequester != null) {
+                        Modifier.focusRequester(actionFocusRequester)
+                    } else {
+                        Modifier
+                    }
+                )
             }
         }
     }

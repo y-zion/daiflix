@@ -42,6 +42,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -92,7 +93,11 @@ fun VodCard(
     progress: Float? = null
 ) {
     val interaction = remember { MutableInteractionSource() }
-    val isFocused by interaction.collectIsFocusedAsState()
+    // Explicit focus state (see FocusSupport.kt): the tv-material FocusInteraction
+    // is a replay-less SharedFlow, so a focus request issued from a parent
+    // LaunchedEffect loses its first event and the first frame renders unfocused.
+    val focus = rememberFocusState()
+    val isFocused = focus.isFocused
 
     Surface(
         onClick = onClick,
@@ -105,8 +110,11 @@ fun VodCard(
             focusedContentColor = DaiflixColors.White
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = CardDimensions.focusedScale),
-        border = ClickableSurfaceDefaults.border(Border.None, focusBorder()),
-        modifier = modifier
+        border = ClickableSurfaceDefaults.border(
+            border = if (focus.isFocused) focusBorder() else Border.None,
+            focusedBorder = focusBorder()
+        ),
+        modifier = modifier.trackFocus(focus)
     ) {
         Column(modifier = Modifier.width(width)) {
             Box(
@@ -120,6 +128,8 @@ fun VodCard(
                     model = item.coverUrl,
                     contentDescription = item.title,
                     contentScale = ContentScale.Crop,
+                    placeholder = ColorPainter(DaiflixColors.DarkSurface),
+                    error = ColorPainter(DaiflixColors.DarkCard),
                     modifier = Modifier.fillMaxSize()
                 )
 

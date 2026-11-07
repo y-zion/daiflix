@@ -71,10 +71,18 @@ class HomeViewModel @Inject constructor(
     }
 
     /**
-     * The site's carousel contains generic promo tiles (「动作片」「电视剧」…) that
-     * carry no year/synopsis, while the content rows hold real metadata. Prefer the
-     * carousel artwork but back it with a real title/metadata item so the hero can
-     * render a Netflix-style copy block; fall back to content cards when needed.
+     * Hero copy and artwork must come from the same source. The site's carousel
+     * mixes real title tiles with generic promo tiles (「动作片」「电视剧」…), and the
+     * old code pasted a *random* row item's title/synopsis over a promo tile's
+     * artwork — that is why the hero showed A's poster with B's copy, and why it
+     * changed on every refresh.
+     *
+     * Rules:
+     *  - carousel tile points at a title we also list → promote that title's
+     *    metadata onto the tile (same vod, same artwork);
+     *  - generic promo tile → it has no honest copy, so drop it instead of
+     *    inventing a pairing;
+     *  - nothing left → fall back to real content cards (art + copy already match).
      */
     private fun buildHeroBanners(data: HomePageData): List<VodItem> {
         val contentItems = data.rows
@@ -83,28 +91,22 @@ class HomeViewModel @Inject constructor(
             .distinctBy { it.id }
         val contentById = contentItems.associateBy { it.id }
 
-        val enriched = data.banners.mapNotNull { banner ->
-            val rich = contentById[banner.id]
-            when {
-                rich != null && !isGenericHeroTitle(banner.title) ->
-                    banner.copy(
-                        title = rich.title,
-                        year = rich.year,
-                        description = rich.description,
-                        episodeCount = rich.episodeCount,
-                        rating = rich.rating
-                    )
+        val matched = data.banners.mapNotNull { banner ->
+            val rich = contentById[banner.id] ?: return@mapNotNull null
+            if (isGenericHeroTitle(rich.title)) return@mapNotNull null
+            banner.copy(
+                title = rich.title,
+                coverUrl = banner.coverUrl.ifBlank { rich.coverUrl },
+                year = rich.year,
+                description = rich.description,
+                episodeCount = rich.episodeCount,
+                rating = rich.rating
+            )
+        }.distinctBy { it.id }
 
-                isGenericHeroTitle(banner.title) -> {
-                    val pick = contentItems.randomOrNullVod(banner.id)
-                    pick?.copy(coverUrl = banner.coverUrl.ifBlank { pick.coverUrl })
-                }
-
-                else -> banner
-            }
-        }.filter { !isGenericHeroTitle(it.title) }
-
-        val hero = enriched.ifEmpty { contentItems.take(HERO_COUNT) }
+        val hero = matched.ifEmpty {
+            contentItems.filterNot { isGenericHeroTitle(it.title) }.ifEmpty { contentItems }
+        }
         return hero.take(HERO_COUNT)
     }
 
@@ -113,11 +115,6 @@ class HomeViewModel @Inject constructor(
         if (title.length > 8) return false
         return GENERIC_HERO_SUFFIXES.any { title.endsWith(it) }
     }
-
-    private fun List<VodItem>.randomOrNullVod(excludeId: String): VodItem? =
-        filter { it.id != excludeId }.let { list ->
-            if (list.isEmpty()) firstOrNull() else list[(list.size / 2).coerceIn(0, list.lastIndex)]
-        }
 
     private companion object {
         const val HERO_COUNT = 5

@@ -13,6 +13,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
+import org.jsoup.nodes.Element
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -105,15 +106,13 @@ class VodHtmlParser @Inject constructor() {
         // 提取标题
         val title = doc.selectFirst("h1.page-title")?.text()?.trim() ?: return null
 
-        // 提取封面图
-        val coverUrl = doc.selectFirst(".video-info-item img[data-src], .video-info-item img[src]")
-            ?.let { img ->
-                img.attr("data-src").ifBlank { img.attr("src") }
-            }?.trim()?.let { normalizeImageUrl(it) } ?: ""
+        // 提取封面图。站点模板换过几版、class 名不固定，按「视频信息块内的图片 →
+        // og:image/twitter:image → 页面里任意惰性加载图」逐级回退，避免整页封面为空。
+        val coverUrl = extractDetailCoverUrl(doc)
 
-        // 提取背景图（如果有）
-        val backdropUrl = doc.selectFirst(".video-info-bg, [class*=backdrop], [class*=banner]")
-            ?.attr("style")?.let { extractUrlFromStyle(it) }?.let { normalizeImageUrl(it) } ?: ""
+        // 提取背景图（hero 大图）。详情页往往没有独立 backdrop，退到 og:image；
+        // UI 侧还有 backdrop.ifBlank { coverUrl } 的兜底。
+        val backdropUrl = extractDetailBackdropUrl(doc)
 
         // 提取元数据
         val videoInfoItems = doc.select(".video-info-items")
@@ -158,6 +157,81 @@ class VodHtmlParser @Inject constructor() {
             playSources = playSources,
             relatedItems = relatedItems.distinctBy { it.id }.take(20)
         )
+    }
+
+    /** 详情页封面：class 名不稳定，选择器逐级放宽后再退 og:image。 */
+    private fun extractDetailCoverUrl(doc: Document): String {
+        val specific = listOf(
+            ".video-info-item img[data-src]",
+            ".video-info-item img[src]",
+            "[class*=video-info] img[data-src]",
+            "[class*=video-info] img[src]",
+            "[class*=vod-pic] img[data-src]",
+            "[class*=vod-pic] img[src]",
+            "[class*=video-pic] img[data-src]",
+            "[class*=video-pic] img[src]",
+            "[class*=module-item-pic] img[data-src]",
+            "[class*=module-item-pic] img[src]",
+            "[class*=poster] img[data-src]",
+            "[class*=poster] img[src]"
+        )
+        specific.forEach { selector ->
+            urlFromImg(doc.selectFirst(selector))?.let { return it }
+        }
+        extractMetaImage(doc).takeIf { it.isNotBlank() }?.let { return it }
+        // 最后才退到页面里任意一张图（可能是海报，也可能是 logo）。
+        return urlFromImg(doc.selectFirst("img[data-src]"))
+            ?: urlFromImg(doc.selectFirst("img[data-original]"))
+            ?: ""
+    }
+
+    /** 详情页 backdrop：背景图元素 → data 属性 → og:image。 */
+    private fun extractDetailBackdropUrl(doc: Document): String {
+        val bgSelectors = listOf(
+            ".video-info-bg",
+            "[class*=backdrop]",
+            "[class*=banner]",
+            "[class*=hero]",
+            "[class*=video-bg]"
+        )
+        bgSelectors.forEach { selector ->
+            doc.selectFirst(selector)?.let { el ->
+                extractUrlFromStyle(el.attr("style"))
+                    .takeIf { it.isNotBlank() }
+                    ?.let { return normalizeImageUrl(it) }
+                val raw = el.attr("data-backdrop").ifBlank { el.attr("data-bg") }
+                if (raw.isNotBlank()) return normalizeImageUrl(raw)
+                urlFromImg(el)?.let { return it }
+            }
+        }
+        return extractMetaImage(doc)
+    }
+
+    private fun extractMetaImage(doc: Document): String {
+        val metaSelectors = listOf(
+            "meta[property=og:image]",
+            "meta[name=og:image]",
+            "meta[name=twitter:image]",
+            "link[rel=image_src]"
+        )
+        metaSelectors.forEach { selector ->
+            val el = doc.selectFirst(selector) ?: return@forEach
+            val raw = el.attr("content").ifBlank { el.attr("href") }
+            val url = normalizeImageUrl(raw)
+            if (url.isNotBlank()) return url
+        }
+        return ""
+    }
+
+    private fun urlFromImg(img: Element?): String? {
+        if (img == null) return null
+        val raw = img.attr("data-src").ifBlank {
+            img.attr("data-original").ifBlank {
+                img.attr("data-echo").ifBlank { img.attr("src") }
+            }
+        }
+        val url = normalizeImageUrl(raw)
+        return url.takeIf { it.isNotBlank() }
     }
 
     /**

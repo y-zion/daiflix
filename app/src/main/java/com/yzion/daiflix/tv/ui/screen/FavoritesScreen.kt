@@ -24,7 +24,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -50,6 +49,7 @@ import coil.compose.AsyncImage
 import com.yzion.daiflix.tv.data.model.VodItem
 import com.yzion.daiflix.tv.data.repository.VodRepository
 import com.yzion.daiflix.tv.ui.component.EmptyState
+import com.yzion.daiflix.tv.ui.component.RequestFocusWhenReady
 import com.yzion.daiflix.tv.ui.component.focusBorder
 import com.yzion.daiflix.tv.ui.theme.DaiflixColors
 import com.yzion.daiflix.tv.ui.theme.DaiflixSpacing
@@ -81,6 +81,8 @@ fun FavoritesScreen(
     viewModel: FavoritesViewModel = hiltViewModel()
 ) {
     val favorites by viewModel.favorites.collectAsState()
+    // 空片单只剩一个「去逛逛」按钮，首帧焦点必须落到它上面，否则遥控器无处可去。
+    val emptyActionFocus = remember { FocusRequester() }
 
     BackHandler(onBack = onBack)
 
@@ -101,7 +103,8 @@ fun FavoritesScreen(
                         title = "还没有收藏内容",
                         message = "在详情页点按「收藏」，片单会出现在这里",
                         actionLabel = "去逛逛",
-                        onAction = onBack
+                        onAction = onBack,
+                        actionFocusRequester = emptyActionFocus
                     )
                 }
             } else {
@@ -186,9 +189,8 @@ private fun FavoritesGrid(
         .coerceAtLeast(120f)
         .dp
 
-    LaunchedEffect(Unit) {
-        runCatching { firstCardFocusRequester.requestFocus() }
-    }
+    // 首帧之后再请求焦点：等卡片的聚焦订阅建立，焦点样式第一帧即可见（审计 P1-3）。
+    RequestFocusWhenReady(firstCardFocusRequester)
 
     LazyVerticalGrid(
         columns = GridCells.Fixed(6),

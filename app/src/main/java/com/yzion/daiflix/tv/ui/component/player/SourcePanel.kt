@@ -3,6 +3,7 @@ package com.yzion.daiflix.tv.ui.component.player
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -101,7 +102,14 @@ private fun SourceRow(
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f)
     ) {
-        Box(modifier = Modifier.padding(horizontal = DaiflixSpacing.md)) {
+        // fillMaxSize() for the same reason as EpisodePanel's chip (audit P1-8): the
+        // Box must cover the whole Surface, otherwise the Surface puts the shrink-wrapped
+        // child at TopStart. The Row already fills the width/height, this makes it explicit.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = DaiflixSpacing.md)
+        ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()

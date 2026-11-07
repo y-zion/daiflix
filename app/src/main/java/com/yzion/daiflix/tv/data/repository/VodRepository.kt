@@ -128,7 +128,12 @@ class VodRepository @Inject constructor(
         dao.getWatchHistoryById(vodId)?.toModel()
 
     suspend fun saveWatchHistory(history: WatchHistory) {
-        dao.insertWatchHistory(history.toEntity())
+        // A detail page that failed to expose its cover must not wipe the artwork
+        // we already resolved earlier (the continue-watching grid would go blank).
+        val cover = history.coverUrl.ifBlank {
+            dao.getWatchHistoryById(history.vodId)?.coverUrl.orEmpty()
+        }
+        dao.insertWatchHistory(history.copy(coverUrl = cover).toEntity())
     }
 
     fun saveWatchHistoryNow(history: WatchHistory) {
@@ -226,6 +231,10 @@ class VodRepository @Inject constructor(
 // ---- 扩展函数 ----
 
 private fun WatchHistoryEntity.toModel() = WatchHistory(
+    // P0 fix: the model id defaulted to 0 for every row, which made
+    // LazyVerticalGrid(itemsIndexed(..., key = { it.id })) crash with
+    // "Key 0 was already used". Derive a stable unique id from the vodId.
+    id = vodId.toLongOrNull() ?: vodId.hashCode().toLong(),
     vodId = vodId,
     title = title,
     coverUrl = coverUrl,

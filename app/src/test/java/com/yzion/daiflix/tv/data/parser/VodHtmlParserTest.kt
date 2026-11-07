@@ -111,4 +111,58 @@ class VodHtmlParserTest {
         assertTrue(data.items.isNotEmpty())
         assertTrue(!data.hasMore)
     }
+
+    @Test
+    fun `detail cover falls back to og image when the info markup changed`() {
+        // Regression: the live template stopped exposing .video-info-item img, so the
+        // detail page rendered an empty poster and wrote blank covers into history.
+        val html = """
+            <html><head>
+              <meta property="og:image" content="https://img.example.com/poster.jpg">
+            </head><body>
+              <h1 class="page-title">测试影片</h1>
+              <div class="module-info-pic"><img src="/assets/logo.png"></div>
+            </body></html>
+        """.trimIndent()
+
+        val detail = parser.parseDetailPage(html, "https://vidhub3.top/voddetail/42.html")
+
+        assertNotNull(detail)
+        assertEquals("https://img.example.com/poster.jpg", detail!!.coverUrl)
+    }
+
+    @Test
+    fun `detail cover prefers lazy data-original over the placeholder src`() {
+        val html = """
+            <html><body>
+              <h1 class="page-title">测试影片</h1>
+              <div class="video-info-item">
+                <img src="/static/blank.gif" data-original="https://img.example.com/real.jpg">
+              </div>
+            </body></html>
+        """.trimIndent()
+
+        val detail = parser.parseDetailPage(html, "https://vidhub3.top/voddetail/43.html")
+
+        assertNotNull(detail)
+        assertEquals("https://img.example.com/real.jpg", detail!!.coverUrl)
+    }
+
+    @Test
+    fun `detail backdrop falls back to og image`() {
+        val html = """
+            <html><head>
+              <meta property="og:image" content="https://img.example.com/hero.jpg">
+            </head><body>
+              <h1 class="page-title">测试影片</h1>
+              <div class="video-info-item"><img data-src="https://img.example.com/cover.jpg"></div>
+            </body></html>
+        """.trimIndent()
+
+        val detail = parser.parseDetailPage(html, "https://vidhub3.top/voddetail/44.html")
+
+        assertNotNull(detail)
+        assertEquals("https://img.example.com/cover.jpg", detail!!.coverUrl)
+        assertEquals("https://img.example.com/hero.jpg", detail.backdropUrl)
+    }
 }

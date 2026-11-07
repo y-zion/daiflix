@@ -10,7 +10,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,6 +32,7 @@ import com.yzion.daiflix.tv.data.model.VodItem
 import com.yzion.daiflix.tv.ui.component.EmptyState
 import com.yzion.daiflix.tv.ui.component.HeroSection
 import com.yzion.daiflix.tv.ui.component.LoadingState
+import com.yzion.daiflix.tv.ui.component.RequestFocusWhenReady
 import com.yzion.daiflix.tv.ui.component.TopNavBar
 import com.yzion.daiflix.tv.ui.component.VodRow
 import com.yzion.daiflix.tv.ui.theme.BannerDimensions
@@ -72,15 +72,12 @@ fun HomeScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val firstRowFocus = remember { FocusRequester() }
+    // 加载失败的空态只有一个「重试」按钮，必须由它接管首屏焦点，否则方向键无目标。
+    val emptyActionFocus = remember { FocusRequester() }
     var heroFocused by remember { mutableStateOf(false) }
-    LaunchedEffect(uiState.isLoading) {
-        if (!uiState.isLoading) {
-            repeat(4) {
-                delay(120)
-                runCatching { navFocus.requestFocus() }
-            }
-        }
-    }
+    // 首帧之后再抢焦点：TopNavBar 常驻布局，无需等数据加载；延后一帧可让
+    // 导航栏内部的聚焦订阅先建立，选中/焦点高亮第一帧即可见（审计 P1-3）。
+    RequestFocusWhenReady(navFocus)
 
     val hasContent = uiState.banners.isNotEmpty() ||
         uiState.rows.isNotEmpty() ||
@@ -132,7 +129,8 @@ fun HomeScreen(
                     title = "加载失败",
                     message = uiState.error,
                     actionLabel = "重试",
-                    onAction = { viewModel.refresh() }
+                    onAction = { viewModel.refresh() },
+                    actionFocusRequester = emptyActionFocus
                 )
             }
 

@@ -3,6 +3,7 @@ package com.yzion.daiflix.tv.ui.component.player
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -107,7 +108,10 @@ private fun EpisodeGridItem(
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f)
     ) {
-        Box(contentAlignment = Alignment.Center) {
+        // fillMaxSize() is required: without it this Box shrink-wraps to the text and
+        // the Surface (56dp tall chip) lays that smaller child out at TopStart, so the
+        // label hugged the top-left corner with ~70% empty space (audit P1-8).
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelLarge,

@@ -33,6 +33,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.painter.ColorPainter
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -40,6 +46,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
@@ -54,9 +61,14 @@ import com.yzion.daiflix.tv.ui.component.EpisodeSelector
 import com.yzion.daiflix.tv.ui.component.HorizontalScrim
 import com.yzion.daiflix.tv.ui.component.LoadingState
 import com.yzion.daiflix.tv.ui.component.MetaPill
+import com.yzion.daiflix.tv.ui.component.RequestFocusWhenReady
 import com.yzion.daiflix.tv.ui.component.SectionHeader
 import com.yzion.daiflix.tv.ui.component.TopScrim
 import com.yzion.daiflix.tv.ui.component.VodRow
+import com.yzion.daiflix.tv.ui.component.focusBorder
+import com.yzion.daiflix.tv.ui.component.focusHalo
+import com.yzion.daiflix.tv.ui.component.rememberFocusState
+import com.yzion.daiflix.tv.ui.component.trackFocus
 import com.yzion.daiflix.tv.ui.theme.BannerDimensions
 import com.yzion.daiflix.tv.ui.theme.CardDimensions
 import com.yzion.daiflix.tv.ui.theme.DaiflixColors
@@ -146,17 +158,28 @@ private fun DetailContent(
     val playLabel = if (canResume) "继续播放 $episodeLabel" else "播放"
 
     val playFocusRequester = remember { FocusRequester() }
+    val backFocusRequester = remember { FocusRequester() }
+    val backFocus = rememberFocusState()
+    val scrollState = rememberScrollState()
+
+    // Enter the page pinned to the top. Focus now lands on the hero back button
+    // (below) instead of the in-body play button; the old LaunchedEffect that
+    // grabbed the play button made verticalScroll auto-scroll the hero partly
+    // off-screen right on entry (audit P1-5).
     LaunchedEffect(detail.id) {
-        // Land focus on the primary action as soon as the detail page appears.
-        runCatching { playFocusRequester.requestFocus() }
+        runCatching { scrollState.scrollTo(0) }
     }
+
+    // First-frame focus on the back button, which is visible at scroll 0, so
+    // requesting it never scrolls the container.
+    RequestFocusWhenReady(backFocusRequester, key = detail.id)
 
     val backdrop = detail.backdropUrl.ifBlank { detail.coverUrl }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(scrollState)
     ) {
         // ---- Hero ----
         Box(
@@ -168,6 +191,8 @@ private fun DetailContent(
                 model = backdrop,
                 contentDescription = detail.title,
                 contentScale = ContentScale.Crop,
+                placeholder = ColorPainter(DaiflixColors.DarkSurface),
+                error = ColorPainter(DaiflixColors.DarkCard),
                 modifier = Modifier.fillMaxSize()
             )
             HorizontalScrim(modifier = Modifier.fillMaxSize())
@@ -179,19 +204,55 @@ private fun DetailContent(
                     .align(Alignment.TopCenter)
             )
 
-            // Floating back button.
+            // Floating back button. Focus styling is driven by the explicit
+            // rememberFocusState() (onFocusChanged) instead of the tv-material
+            // interactionSource focused colors: on the very first frame the
+            // first FocusInteraction can be missed, leaving a focused button
+            // that does not look focused (audit P1-3).
             Surface(
                 onClick = onBack,
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .padding(start = DaiflixSpacing.screenPadding, top = DaiflixSpacing.md)
-                    .size(48.dp),
+                    .size(48.dp)
+                    .focusRequester(backFocusRequester)
+                    .trackFocus(backFocus)
+                    .focusHalo(backFocus, cornerRadius = 24.dp)
+                    .onPreviewKeyEvent { event ->
+                        // Poster column sits between the back button and the
+                        // action row, so DOWN is routed explicitly instead of
+                        // relying on geometric focus search.
+                        if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionDown) {
+                            // Only swallow the event when the move actually
+                            // happened; otherwise fall back to default focus
+                            // search so focus never gets stuck on the back
+                            // button.
+                            runCatching { playFocusRequester.requestFocus() }.isSuccess
+                        } else {
+                            false
+                        }
+                    },
                 shape = ClickableSurfaceDefaults.shape(CircleShape),
                 colors = ClickableSurfaceDefaults.colors(
-                    containerColor = DaiflixColors.Black.copy(alpha = 0.55f),
-                    contentColor = DaiflixColors.White,
+                    containerColor = if (backFocus.isFocused) {
+                        DaiflixColors.White
+                    } else {
+                        DaiflixColors.Black.copy(alpha = 0.55f)
+                    },
+                    contentColor = if (backFocus.isFocused) {
+                        DaiflixColors.Black
+                    } else {
+                        DaiflixColors.White
+                    },
                     focusedContainerColor = DaiflixColors.White,
                     focusedContentColor = DaiflixColors.Black
+                ),
+                border = ClickableSurfaceDefaults.border(
+                    border = if (backFocus.isFocused) {
+                        focusBorder(DaiflixColors.Black)
+                    } else {
+                        Border.None
+                    }
                 ),
                 scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f)
             ) {
@@ -199,7 +260,8 @@ private fun DetailContent(
                     Icon(
                         imageVector = Icons.Rounded.ArrowBack,
                         contentDescription = "返回",
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(24.dp),
+                        tint = if (backFocus.isFocused) DaiflixColors.Black else DaiflixColors.White
                     )
                 }
             }
@@ -227,6 +289,8 @@ private fun DetailContent(
                         model = detail.coverUrl,
                         contentDescription = detail.title,
                         contentScale = ContentScale.Crop,
+                        placeholder = ColorPainter(DaiflixColors.DarkSurface),
+                        error = ColorPainter(DaiflixColors.DarkCard),
                         modifier = Modifier.fillMaxSize()
                     )
                 }
@@ -294,22 +358,15 @@ private fun DetailContent(
                                 )
                             },
                             icon = Icons.Rounded.PlayArrow,
-                            modifier = if (episodes.isEmpty()) {
-                                Modifier
-                            } else {
-                                Modifier.focusRequester(playFocusRequester)
-                            }
+                            // Always reachable from the back button via the
+                            // explicit DOWN handler above.
+                            modifier = Modifier.focusRequester(playFocusRequester)
                         )
 
                         DaiflixSecondaryButton(
                             text = if (uiState.isFavorite) "已收藏" else "收藏",
                             onClick = onToggleFavorite,
-                            icon = if (uiState.isFavorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
-                            modifier = if (episodes.isEmpty()) {
-                                Modifier.focusRequester(playFocusRequester)
-                            } else {
-                                Modifier
-                            }
+                            icon = if (uiState.isFavorite) Icons.Rounded.Star else Icons.Rounded.StarBorder
                         )
                     }
                 }
@@ -363,9 +420,7 @@ private fun DetailErrorState(
     onBack: () -> Unit
 ) {
     val retryFocusRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) {
-        runCatching { retryFocusRequester.requestFocus() }
-    }
+    RequestFocusWhenReady(retryFocusRequester)
 
     Box(
         modifier = Modifier

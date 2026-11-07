@@ -15,7 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -24,6 +24,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.style.TextAlign
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.MaterialTheme
@@ -34,6 +36,7 @@ import com.yzion.daiflix.tv.ui.component.DaiflixPrimaryButton
 import com.yzion.daiflix.tv.ui.component.DaiflixSecondaryButton
 import com.yzion.daiflix.tv.ui.component.EmptyState
 import com.yzion.daiflix.tv.ui.component.LoadingState
+import com.yzion.daiflix.tv.ui.component.RequestFocusWhenReady
 import com.yzion.daiflix.tv.ui.component.TopNavBar
 import com.yzion.daiflix.tv.ui.component.VodCard
 import com.yzion.daiflix.tv.ui.theme.DaiflixColors
@@ -62,6 +65,17 @@ fun CategoryScreen(
     val uiState by viewModel.uiState.collectAsState()
     val category = remember(categoryId) { Category.fromValue(categoryId) }
     val gridState = rememberLazyGridState()
+    val firstCardFocusRequester = remember { FocusRequester() }
+    // 空态 / 错误态的「重试 / 返回首页」是页面上仅有的可聚焦控件，必须由它接管焦点。
+    val emptyActionFocus = remember { FocusRequester() }
+
+    // 网格首次出现（加载完成）后立刻聚焦第一张卡片：等一帧再请求，
+    // 卡片自身的聚焦订阅已建立，焦点样式首帧即可见（审计 P1-3）。
+    RequestFocusWhenReady(
+        focusRequester = firstCardFocusRequester,
+        key = uiState.items.isEmpty(),
+        enabled = uiState.items.isNotEmpty()
+    )
 
     LaunchedEffect(category) {
         viewModel.loadCategory(category)
@@ -103,6 +117,7 @@ fun CategoryScreen(
                         message = uiState.error,
                         onRetry = { viewModel.loadCategory(category) },
                         onBack = onBack,
+                        retryFocusRequester = emptyActionFocus,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -113,7 +128,8 @@ fun CategoryScreen(
                         message = "该分类下暂时没有可播放的内容",
                         actionLabel = "返回首页",
                         onAction = onBack,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        actionFocusRequester = emptyActionFocus
                     )
                 }
 
@@ -122,6 +138,7 @@ fun CategoryScreen(
                         category = category,
                         items = uiState.items,
                         gridState = gridState,
+                        firstItemFocusRequester = firstCardFocusRequester,
                         onVodClick = onVodClick,
                         modifier = Modifier.weight(1f)
                     )
@@ -136,6 +153,7 @@ private fun CategoryGrid(
     category: Category,
     items: List<VodItem>,
     gridState: LazyGridState,
+    firstItemFocusRequester: FocusRequester,
     onVodClick: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -184,10 +202,15 @@ private fun CategoryGrid(
                 verticalArrangement = Arrangement.spacedBy(DaiflixSpacing.lg),
                 modifier = Modifier.fillMaxSize()
             ) {
-                items(items, key = { it.id }) { item ->
+                itemsIndexed(items, key = { _, item -> item.id }) { index, item ->
                     VodCard(
                         item = item,
                         onClick = { onVodClick(item.id) },
+                        modifier = if (index == 0) {
+                            Modifier.focusRequester(firstItemFocusRequester)
+                        } else {
+                            Modifier
+                        },
                         width = cellWidth,
                         height = cellHeight
                     )
@@ -202,8 +225,11 @@ private fun CategoryError(
     message: String?,
     onRetry: () -> Unit,
     onBack: () -> Unit,
+    retryFocusRequester: FocusRequester,
     modifier: Modifier = Modifier
 ) {
+    // 错误页没有其它内容，首帧就把焦点交给「重试」，避免方向键无响应。
+    RequestFocusWhenReady(retryFocusRequester)
     Box(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
@@ -226,7 +252,11 @@ private fun CategoryError(
             }
             Spacer(modifier = Modifier.height(DaiflixSpacing.lg))
             Row(horizontalArrangement = Arrangement.spacedBy(DaiflixSpacing.md)) {
-                DaiflixPrimaryButton(text = "重试", onClick = onRetry)
+                DaiflixPrimaryButton(
+                    text = "重试",
+                    onClick = onRetry,
+                    modifier = Modifier.focusRequester(retryFocusRequester)
+                )
                 DaiflixSecondaryButton(text = "返回首页", onClick = onBack)
             }
         }

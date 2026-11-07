@@ -2,7 +2,6 @@ package com.yzion.daiflix.tv.ui.screen
 
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -199,31 +198,37 @@ fun PlayerScreen(
         if (event.type != KeyEventType.KeyDown) return false
         interactionTick++
 
-        // A panel owns the D-pad; only BACK is intercepted from above.
-        panel?.let { openPanel ->
-            return if (event.key == Key.Back) {
-                panel = null
-                true
-            } else {
-                false
+        // BACK is decided here and only here — this preview handler is the single
+        // BACK path of the player (audit P1-4). The `BackHandler { ... }` that used to
+        // sit at the end of this composable dispatched the *same* physical press
+        // independently (OnBackPressedDispatcher) and called leavePlayer() again, so
+        // one press ran popBackStack twice: player -> detail -> list. It was the
+        // duplicate that got deleted (not this handler) because the panel / error
+        // branches below must run before the normal HUD/exit logic, and only this
+        // handler can express them.
+        if (event.key == Key.Back) {
+            when (playerBackAction(
+                panelOpen = panel != null,
+                hasError = uiState.error != null,
+                hudVisible = hudVisible
+            )) {
+                // Panel open: consume BACK by closing the panel, never touch the back stack.
+                PlayerBackAction.CLOSE_PANEL -> panel = null
+                // Normal playback: first BACK only dismisses the HUD.
+                PlayerBackAction.HIDE_HUD -> hudVisible = false
+                // Error state / normal playback with the HUD hidden: leave exactly one level.
+                PlayerBackAction.EXIT_PLAYER -> leavePlayer()
             }
+            return true
         }
 
-        // The error screen keeps its own focus/back handling.
-        if (uiState.error != null) {
-            return if (event.key == Key.Back) {
-                leavePlayer()
-                true
-            } else {
-                false
-            }
-        }
+        // A panel owns the D-pad for every other key.
+        if (panel != null) return false
+
+        // The error screen keeps its own focus handling for every other key.
+        if (uiState.error != null) return false
 
         when (event.key) {
-            Key.Back -> {
-                if (hudVisible) hudVisible = false else leavePlayer()
-                return true
-            }
             Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
                 if (hudVisible) {
                     activateControl(selectedControl)
@@ -281,10 +286,9 @@ fun PlayerScreen(
         return false
     }
 
-    // Fallback for the rare case the root anchor lost focus (e.g. after a panel closed).
-    BackHandler(enabled = panel == null && uiState.error == null) {
-        if (hudVisible) hudVisible = false else leavePlayer()
-    }
+    // NOTE: there is deliberately no BackHandler here. A BackHandler + the root
+    // onPreviewKeyEvent below both fired for one BACK press, which doubled the
+    // popBackStack (audit P1-4). BACK is handled exclusively in handleKey() above.
 
     // Keep the invisible root anchor focused so key handling always works.
     LaunchedEffect(panel, uiState.error) {
@@ -480,6 +484,29 @@ private fun previousControl(control: PlayerControl): PlayerControl {
 private fun currentEpisodeLabel(episodeName: String?, episodeIndex: Int): String = when {
     !episodeName.isNullOrBlank() -> episodeName
     else -> "第${episodeIndex + 1}集"
+}
+
+/** What a single BACK press on the player screen must do. */
+internal enum class PlayerBackAction { CLOSE_PANEL, HIDE_HUD, EXIT_PLAYER }
+
+/**
+ * The one and only BACK decision of [PlayerScreen], kept pure so the
+ * panel / error / normal semantics are unit-testable without Compose
+ * (audit P1-4: the screen used to have two BACK paths that each popped the back stack).
+ *
+ * - panel open   -> only close the panel, never touch the back stack;
+ * - error state  -> leave the player exactly one level (back to detail);
+ * - normal       -> dismiss the HUD first; the next BACK leaves one level.
+ */
+internal fun playerBackAction(
+    panelOpen: Boolean,
+    hasError: Boolean,
+    hudVisible: Boolean
+): PlayerBackAction = when {
+    panelOpen -> PlayerBackAction.CLOSE_PANEL
+    hasError -> PlayerBackAction.EXIT_PLAYER
+    hudVisible -> PlayerBackAction.HIDE_HUD
+    else -> PlayerBackAction.EXIT_PLAYER
 }
 
 @Composable

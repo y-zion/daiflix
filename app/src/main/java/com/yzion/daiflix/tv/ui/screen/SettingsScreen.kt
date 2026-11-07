@@ -23,7 +23,6 @@ import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,8 +49,10 @@ import androidx.tv.material3.SwitchDefaults
 import androidx.tv.material3.Text
 import com.yzion.daiflix.tv.data.local.AppPreferences
 import com.yzion.daiflix.tv.data.repository.VodRepository
+import com.yzion.daiflix.tv.ui.component.DaiflixDangerButton
 import com.yzion.daiflix.tv.ui.component.DaiflixPrimaryButton
 import com.yzion.daiflix.tv.ui.component.DaiflixSecondaryButton
+import com.yzion.daiflix.tv.ui.component.RequestFocusWhenReady
 import com.yzion.daiflix.tv.ui.component.focusBorder
 import com.yzion.daiflix.tv.ui.theme.DaiflixColors
 import com.yzion.daiflix.tv.ui.theme.DaiflixSpacing
@@ -98,14 +99,17 @@ fun SettingsScreen(
     val urlFieldFocusRequester = remember { FocusRequester() }
     val firstRowFocusRequester = remember { FocusRequester() }
 
-    LaunchedEffect(Unit) {
-        runCatching { firstRowFocusRequester.requestFocus() }
-    }
-    LaunchedEffect(editingUrl) {
-        if (editingUrl) {
-            runCatching { urlFieldFocusRequester.requestFocus() }
-        }
-    }
+    // 首帧之后一帧再请求焦点：等第一行 SettingsToggleRow 的聚焦订阅先建立，
+    // 焦点样式（白底黑字 / 白焦点环）第一帧即可见（审计 P1-3）。
+    RequestFocusWhenReady(firstRowFocusRequester)
+
+    // 进入「数据源地址」编辑态时把光标落到输入框；退出编辑态时 enabled=false，
+    // 不会在返回列表时误抢焦点。
+    RequestFocusWhenReady(
+        focusRequester = urlFieldFocusRequester,
+        key = editingUrl,
+        enabled = editingUrl
+    )
 
     BackHandler {
         if (showClearConfirm) {
@@ -518,9 +522,9 @@ private fun ClearHistoryConfirm(
     onConfirm: () -> Unit
 ) {
     val cancelFocusRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) {
-        runCatching { cancelFocusRequester.requestFocus() }
-    }
+    // 默认焦点落在「取消」上（破坏性操作不预聚焦确认键）；延后一帧请求，
+    // 确保按钮的聚焦样式第一帧就可见。
+    RequestFocusWhenReady(cancelFocusRequester)
 
     Box(
         modifier = Modifier
@@ -552,7 +556,7 @@ private fun ClearHistoryConfirm(
                     onClick = onCancel,
                     modifier = Modifier.focusRequester(cancelFocusRequester)
                 )
-                DaiflixPrimaryButton(
+                DaiflixDangerButton(
                     text = "清除",
                     onClick = onConfirm
                 )

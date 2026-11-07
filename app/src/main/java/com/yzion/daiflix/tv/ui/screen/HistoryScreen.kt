@@ -39,6 +39,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
@@ -46,9 +47,13 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.yzion.daiflix.tv.data.model.WatchHistory
+import androidx.compose.ui.graphics.painter.ColorPainter
 import com.yzion.daiflix.tv.ui.component.BottomScrim
 import com.yzion.daiflix.tv.ui.component.EmptyState
+import com.yzion.daiflix.tv.ui.component.RequestFocusWhenReady
 import com.yzion.daiflix.tv.ui.component.focusBorder
+import com.yzion.daiflix.tv.ui.component.rememberFocusState
+import com.yzion.daiflix.tv.ui.component.trackFocus
 import com.yzion.daiflix.tv.ui.theme.DaiflixColors
 import com.yzion.daiflix.tv.ui.theme.DaiflixSpacing
 import com.yzion.daiflix.tv.ui.viewmodel.HistoryViewModel
@@ -79,12 +84,14 @@ fun HistoryScreen(
             )
 
             if (history.isEmpty()) {
+                val emptyActionFocus = remember { FocusRequester() }
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                     EmptyState(
                         title = "还没有观看记录",
                         message = "去首页挑一部喜欢的片开始追剧吧",
                         actionLabel = "返回首页",
-                        onAction = onBack
+                        onAction = onBack,
+                        actionFocusRequester = emptyActionFocus
                     )
                 }
             } else {
@@ -170,9 +177,7 @@ private fun HistoryGrid(
         .coerceAtLeast(120f)
         .dp
 
-    LaunchedEffect(Unit) {
-        runCatching { firstCardFocusRequester.requestFocus() }
-    }
+    RequestFocusWhenReady(firstCardFocusRequester)
 
     LazyVerticalGrid(
         columns = GridCells.Fixed(6),
@@ -186,7 +191,9 @@ private fun HistoryGrid(
         horizontalArrangement = Arrangement.spacedBy(spacing),
         verticalArrangement = Arrangement.spacedBy(DaiflixSpacing.lg)
     ) {
-        itemsIndexed(history, key = { _, entry -> entry.id }) { index, entry ->
+        // vodId is the DB primary key, so it can never collide (the model id used
+        // to be 0 for every row and crashed the grid with duplicate keys).
+        itemsIndexed(history, key = { _, entry -> entry.vodId }) { index, entry ->
             HistoryCard(
                 entry = entry,
                 width = cardWidth,
@@ -204,11 +211,12 @@ private fun HistoryCard(
     focusRequester: FocusRequester?,
     onClick: () -> Unit
 ) {
-    val cardModifier = if (focusRequester != null) {
+    val focus = rememberFocusState()
+    val cardModifier = (if (focusRequester != null) {
         Modifier.width(width).focusRequester(focusRequester)
     } else {
         Modifier.width(width)
-    }
+    }).trackFocus(focus)
 
     Surface(
         onClick = onClick,
@@ -221,7 +229,10 @@ private fun HistoryCard(
             focusedContentColor = DaiflixColors.White
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
-        border = ClickableSurfaceDefaults.border(focusedBorder = focusBorder())
+        border = ClickableSurfaceDefaults.border(
+            border = if (focus.isFocused) focusBorder() else Border.None,
+            focusedBorder = focusBorder()
+        )
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Box(
@@ -235,6 +246,8 @@ private fun HistoryCard(
                     model = entry.coverUrl,
                     contentDescription = entry.title,
                     contentScale = ContentScale.Crop,
+                    placeholder = ColorPainter(DaiflixColors.DarkSurface),
+                    error = ColorPainter(DaiflixColors.DarkCard),
                     modifier = Modifier.fillMaxSize()
                 )
                 BottomScrim(
